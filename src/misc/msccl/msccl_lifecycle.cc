@@ -258,11 +258,7 @@ static ncclResult_t mscclSchedulerSelectAlgo(struct mscclSavedSchedulerParam* pa
   if (status.mscclSchedulerPtr) {
     NCCLCHECK(status.mscclSchedulerPtr->selectAlgo(&(param->p)));
   } else {
-    if (param->comm->topo->mscclEnabled || rcclParamMscclForceEnabled()) {
-      NCCLCHECK(mscclInternalSchedulerSelectAlgo(&(param->p)));
-    } else {
-      param->p.scheduled = false;
-    }
+    NCCLCHECK(mscclInternalSchedulerSelectAlgo(&(param->p)));
   }
   return ncclSuccess;
 }
