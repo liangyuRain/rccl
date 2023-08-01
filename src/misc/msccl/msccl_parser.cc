@@ -432,6 +432,8 @@ ncclResult_t mscclGetAlgoFromXmlFile(const char* str, struct mscclAlgo* algo, in
 
             struct mscclThreadBlock* sTB = &algo->mscclTBs[bid];
             sTB->nSteps = 0;
+            sTB->nrecv = 0;
+            sTB->nsend = 0;
             for (int i = 0; i < MSCCL_MAX_SEND_RECV_PEERS; ++i) {
               int recvPeer = recvPeers[i];
               int sendPeer = sendPeers[i];
@@ -465,6 +467,8 @@ ncclResult_t mscclGetAlgoFromXmlFile(const char* str, struct mscclAlgo* algo, in
 
               sTB->recvPeers[i] = recvPeer;
               sTB->sendPeers[i] = sendPeer;
+              if (recvPeer >= 0) ++sTB->nrecv;
+              if (sendPeer >= 0) ++sTB->nsend;
             }
 
             if (channelId < 0 || channelId > MAXCHANNELS) {
