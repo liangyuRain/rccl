@@ -276,7 +276,7 @@ private:
         }
       }
 
-      for (int i=1; i<MaxRecv && i<fan.nrecv(); i++) {
+      for (int i=1; i<fan.nrecv(); i++) {
         uint64_t flag = recvFlag(i);
         uint64_t* ptr = recvPtr(i)+ll128Offset;
         bool needReload;
@@ -318,7 +318,7 @@ private:
 #endif
     /************************ Send **************************/
     if (SEND) {
-      for (int i=1; i<MaxSend && i<fan.nsend(); i++) {
+      for (int i=1; i<fan.nsend(); i++) {
         uint64_t flag = sendFlag(i);
         uint64_t* ptr = sendPtr(i)+ll128Offset;
         #pragma unroll
@@ -370,9 +370,9 @@ private:
     }
 
     barrier();
-    if (SEND) for (int i=0; i < MaxSend; i++) sendStep[i] += 1;
+    if (SEND) for (int i=0; i < fan.nsend(); i++) sendStep[i] += 1;
     if (SEND) postSend();
-    if (RECV) for (int i=0; i < MaxRecv; i++) recvStep[i] += 1;
+    if (RECV) for (int i=0; i < fan.nrecv(); i++) recvStep[i] += 1;
     if (RECV) postRecv();
   }
 
