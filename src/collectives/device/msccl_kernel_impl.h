@@ -126,7 +126,7 @@ for (int r = 0; r < numloops; r++) { \
 }
 
 template<typename T, typename RedOp, typename Proto, typename Fan>
-__device__ __forceinline__ void mscclRunInterpreterHelper(
+__device__ void mscclRunInterpreterHelper(
   struct ncclDevComm* comm, struct mscclAlgo* algo, struct mscclWork work) {
   const int tid = threadIdx.x;
   const int bid = blockIdx.x;
@@ -383,9 +383,9 @@ __device__ __forceinline__ void mscclRunInterpreter(
       case 4:
         mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<1, 4>>(comm, algo, work);
         break;
-      case 5: // make sure all cases are handled for nsend <= MSCCL_MAX_SEND_RECV_PEERS
-        mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<1, 5>>(comm, algo, work);
-        break;
+      // case 5: // make sure all cases are handled for nsend <= MSCCL_MAX_SEND_RECV_PEERS
+      //   mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<1, 5>>(comm, algo, work);
+      //   break;
     }
   } else if (nsend == 1) {
     switch (nrecv) {
@@ -401,9 +401,9 @@ __device__ __forceinline__ void mscclRunInterpreter(
       case 4:
         mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<4, 1>>(comm, algo, work);
         break;
-      case 5:
-        mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<5, 1>>(comm, algo, work);
-        break;
+      // case 5:
+      //   mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<5, 1>>(comm, algo, work);
+      //   break;
     }
   } else {
     mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<MSCCL_MAX_SEND_RECV_PEERS, MSCCL_MAX_SEND_RECV_PEERS>>(comm, algo, work);
