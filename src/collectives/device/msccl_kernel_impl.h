@@ -126,7 +126,7 @@ for (int r = 0; r < numloops; r++) { \
 }
 
 template<typename T, typename RedOp, typename Proto, typename Fan>
-__device__ void mscclRunInterpreterHelper(
+__device__ __forceinline__ void mscclRunInterpreterHelper(
   struct ncclDevComm* comm, struct mscclAlgo* algo, struct mscclWork work) {
   const int tid = threadIdx.x;
   const int bid = blockIdx.x;
@@ -364,7 +364,7 @@ __device__ void mscclRunInterpreterHelper(
 }
 
 template<typename T, typename RedOp, typename Proto>
-__device__ void mscclRunInterpreter(
+__device__ __forceinline__ void mscclRunInterpreter(
   struct ncclDevComm* comm, struct mscclAlgo* algo, struct mscclWork work) {
   int nrecv = 0;
   #pragma unroll
