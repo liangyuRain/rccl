@@ -368,48 +368,47 @@ __device__ __forceinline__ void mscclRunInterpreter(
   struct ncclDevComm* comm, struct mscclAlgo* algo, struct mscclWork work) {
   const int nrecv = mscclShmem.mscclTB.nrecv;
   const int nsend = mscclShmem.mscclTB.nsend;
-  mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<1, 1>>(comm, algo, work);
-  // if (nrecv == 1) {
-  //   switch (nsend) {
-  //     case 0:
-  //     case 1:
-  //       mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<1, 1>>(comm, algo, work);
-  //       break;
-  //     case 2:
-  //       mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<1, 2>>(comm, algo, work);
-  //       break;
-  //     case 3:
-  //       mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<1, 3>>(comm, algo, work);
-  //       break;
-  //     case 4:
-  //       mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<1, 4>>(comm, algo, work);
-  //       break;
-  //     default:
-  //       mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<1, MSCCL_MAX_SEND_RECV_PEERS>>(comm, algo, work);
-  //       break;
-  //   }
-  // } else if (nsend == 1) {
-  //   switch (nrecv) {
-  //     case 0:
-  //     case 1:
-  //       mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<1, 1>>(comm, algo, work);
-  //       break;
-  //     case 2:
-  //       mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<2, 1>>(comm, algo, work);
-  //       break;
-  //     case 3:
-  //       mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<3, 1>>(comm, algo, work);
-  //       break;
-  //     case 4:
-  //       mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<4, 1>>(comm, algo, work);
-  //       break;
-  //     default:
-  //       mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<MSCCL_MAX_SEND_RECV_PEERS, 1>>(comm, algo, work);
-  //       break;
-  //   }
-  // } else {
-  //   mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<MSCCL_MAX_SEND_RECV_PEERS, MSCCL_MAX_SEND_RECV_PEERS>>(comm, algo, work);
-  // }
+  if (nrecv == 1) {
+    switch (nsend) {
+      case 0:
+      case 1:
+        mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<1, 1>>(comm, algo, work);
+        break;
+      case 2:
+        mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<1, 2>>(comm, algo, work);
+        break;
+      case 3:
+        mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<1, 3>>(comm, algo, work);
+        break;
+      case 4:
+        mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<1, 4>>(comm, algo, work);
+        break;
+      default:
+        mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<1, MSCCL_MAX_SEND_RECV_PEERS>>(comm, algo, work);
+        break;
+    }
+  } else if (nsend == 1) {
+    switch (nrecv) {
+      case 0:
+      case 1:
+        mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<1, 1>>(comm, algo, work);
+        break;
+      case 2:
+        mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<2, 1>>(comm, algo, work);
+        break;
+      case 3:
+        mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<3, 1>>(comm, algo, work);
+        break;
+      case 4:
+        mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<4, 1>>(comm, algo, work);
+        break;
+      default:
+        mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<MSCCL_MAX_SEND_RECV_PEERS, 1>>(comm, algo, work);
+        break;
+    }
+  } else {
+    mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<MSCCL_MAX_SEND_RECV_PEERS, MSCCL_MAX_SEND_RECV_PEERS>>(comm, algo, work);
+  }
 }
 
 #define MSCCL_IMPL_KERNEL_ENTRY_FUNC_DEVREDOP_TYPE(devredop, type) \
