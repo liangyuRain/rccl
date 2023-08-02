@@ -432,8 +432,6 @@ ncclResult_t mscclGetAlgoFromXmlFile(const char* str, struct mscclAlgo* algo, in
 
             struct mscclThreadBlock* sTB = &algo->mscclTBs[bid];
             sTB->nSteps = 0;
-            sTB->nrecv = 0;
-            sTB->nsend = 0;
             for (int i = 0; i < MSCCL_MAX_SEND_RECV_PEERS; ++i) {
               int recvPeer = recvPeers[i];
               int sendPeer = sendPeers[i];
@@ -467,17 +465,6 @@ ncclResult_t mscclGetAlgoFromXmlFile(const char* str, struct mscclAlgo* algo, in
 
               sTB->recvPeers[i] = recvPeer;
               sTB->sendPeers[i] = sendPeer;
-              if (recvPeer >= 0) ++sTB->nrecv;
-              if (sendPeer >= 0) ++sTB->nsend;
-            }
-
-            if (sTB->nrecv < 0 || sTB->nrecv > MSCCL_MAX_SEND_RECV_PEERS) {
-              WARN("MSCCL: sTB->nrecv=%d", sTB->nrecv);
-              return ncclInvalidUsage;
-            }
-            if (sTB->nsend < 0 || sTB->nsend > MSCCL_MAX_SEND_RECV_PEERS) {
-              WARN("MSCCL: sTB->nsend=%d", sTB->nsend);
-              return ncclInvalidUsage;
             }
 
             if (channelId < 0 || channelId > MAXCHANNELS) {
