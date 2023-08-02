@@ -364,7 +364,7 @@ __device__ void mscclRunInterpreterHelper(
 }
 
 template<typename T, typename RedOp, typename Proto>
-__device__ __forceinline__ void mscclRunInterpreter(
+__device__ void mscclRunInterpreter(
   struct ncclDevComm* comm, struct mscclAlgo* algo, struct mscclWork work) {
   const int nrecv = mscclShmem.mscclTB.nrecv;
   const int nsend = mscclShmem.mscclTB.nsend;
@@ -383,6 +383,9 @@ __device__ __forceinline__ void mscclRunInterpreter(
       case 4:
         mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<1, 4>>(comm, algo, work);
         break;
+      case 5:
+        mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<1, 5>>(comm, algo, work);
+        break;
       default: // make sure all cases are handled for nsend <= MSCCL_MAX_SEND_RECV_PEERS
         mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<1, MSCCL_MAX_SEND_RECV_PEERS>>(comm, algo, work);
         break;
@@ -400,6 +403,9 @@ __device__ __forceinline__ void mscclRunInterpreter(
         break;
       case 4:
         mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<4, 1>>(comm, algo, work);
+        break;
+      case 5:
+        mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<5, 1>>(comm, algo, work);
         break;
       default:
         mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<MSCCL_MAX_SEND_RECV_PEERS, 1>>(comm, algo, work);
