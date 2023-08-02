@@ -380,7 +380,10 @@ __device__ __forceinline__ void mscclRunInterpreter(
       case 3:
         mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<1, 3>>(comm, algo, work);
         break;
-      default: // make sure all cases are handled for nsend <= MSCCL_MAX_SEND_RECV_PEERS
+      case 5:
+        mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<1, 5>>(comm, algo, work);
+        break;
+      default:
         mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<1, MSCCL_MAX_SEND_RECV_PEERS>>(comm, algo, work);
         break;
     }
@@ -395,6 +398,9 @@ __device__ __forceinline__ void mscclRunInterpreter(
         break;
       case 3:
         mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<3, 1>>(comm, algo, work);
+        break;
+      case 5:
+        mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<5, 1>>(comm, algo, work);
         break;
       default:
         mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<MSCCL_MAX_SEND_RECV_PEERS, 1>>(comm, algo, work);
