@@ -61,6 +61,7 @@ struct alignas(sizeof(uint64_t)) mscclThreadBlock {
   int16_t reductionSrcOffsets[MSCCL_MAX_NUM_STEPS]; // 512 bytes
   int16_t sendPeers[MSCCL_MAX_SEND_RECV_PEERS];
   int16_t recvPeers[MSCCL_MAX_SEND_RECV_PEERS];
+  uint8_t nrecv, nsend;
   uint16_t nSteps;
   int16_t channelId; // associated channel. -1 indicates a thread block with only local copies
 }; // 5384 bytes
@@ -73,7 +74,7 @@ struct mscclFlag {
 };
 
 struct mscclChannelPeerInfo {
-  int peers[MSCCL_MAX_SEND_RECV_PEERS];
+  int16_t peers[MSCCL_MAX_SEND_RECV_PEERS];
   // nTransmissionsOfCount[i]: number of transmissions with count i (in terms of msccl chunks)
   int nTransmissionsOfCount[MSCCL_MAX_COUNT + 1];
   int existingCounts[MSCCL_MAX_COUNT + 1];
