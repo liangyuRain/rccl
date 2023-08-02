@@ -366,8 +366,12 @@ __device__ void mscclRunInterpreterHelper(
 template<typename T, typename RedOp, typename Proto>
 __device__ void mscclRunInterpreter(
   struct ncclDevComm* comm, struct mscclAlgo* algo, struct mscclWork work) {
-  const int nrecv = mscclShmem.mscclTB.nrecv;
-  const int nsend = mscclShmem.mscclTB.nsend;
+  int nrecv = 0;
+  #pragma unroll
+  for (int nrecv = 0; mscclShmem.mscclTB.recvPeers[nrecv] >= 0 && nrecv < Fan::MaxRecv; ++nrecv);
+  int nsend = 0;
+  #pragma unroll
+  for (int nsend = 0; mscclShmem.mscclTB.sendPeers[nsend] >= 0 && nsend < Fan::MaxSend; ++nsend);
   if (nrecv == 1) {
     switch (nsend) {
       case 0:
@@ -380,12 +384,6 @@ __device__ void mscclRunInterpreter(
       case 3:
         mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<1, 3>>(comm, algo, work);
         break;
-      case 4:
-        mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<1, 4>>(comm, algo, work);
-        break;
-      case 5:
-        mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<1, 5>>(comm, algo, work);
-        break;
       default: // make sure all cases are handled for nsend <= MSCCL_MAX_SEND_RECV_PEERS
         mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<1, MSCCL_MAX_SEND_RECV_PEERS>>(comm, algo, work);
         break;
@@ -393,6 +391,7 @@ __device__ void mscclRunInterpreter(
   } else if (nsend == 1) {
     switch (nrecv) {
       case 0:
+      case 1:
         mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<1, 1>>(comm, algo, work);
         break;
       case 2:
@@ -400,12 +399,6 @@ __device__ void mscclRunInterpreter(
         break;
       case 3:
         mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<3, 1>>(comm, algo, work);
-        break;
-      case 4:
-        mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<4, 1>>(comm, algo, work);
-        break;
-      case 5:
-        mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<5, 1>>(comm, algo, work);
         break;
       default:
         mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<MSCCL_MAX_SEND_RECV_PEERS, 1>>(comm, algo, work);
