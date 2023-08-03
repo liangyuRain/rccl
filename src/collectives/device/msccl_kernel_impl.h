@@ -368,8 +368,8 @@ __device__ __forceinline__ void mscclRunInterpreterHelper(
 template<typename T, typename RedOp, typename Proto>
 __device__ __forceinline__ void mscclRunInterpreter(
   struct ncclDevComm* comm, struct mscclAlgo* algo, struct mscclWork work) {
-  const uint8_t nrecv = mscclShmem.mscclTB.nrecv;
-  const uint8_t nsend = mscclShmem.mscclTB.nsend;
+  const int nrecv = mscclShmem.mscclTB.nrecv;
+  const int nsend = mscclShmem.mscclTB.nsend;
   uint8_t nrecv2 = 0;
   for (nrecv2 = 0; mscclShmem.mscclTB.recvPeers[nrecv2] >= 0 && nrecv2 < MSCCL_MAX_SEND_RECV_PEERS; ++nrecv2);
   uint8_t nsend2 = 0;
@@ -406,11 +406,11 @@ __device__ __forceinline__ void mscclRunInterpreter(
           "high nsend: nrecv=%d, nsend=%d, nrecv2=%d, nsend2=%d, "
           "recvPeers=[%d,%d,%d,%d], "
           "sendPeers=[%d,%d,%d,%d]\n",
-          nrecv, nsend, nrecv2, nsend2,
-          mscclShmem.mscclTB.recvPeers[0], mscclShmem.mscclTB.recvPeers[1], mscclShmem.mscclTB.recvPeers[2],
-          mscclShmem.mscclTB.recvPeers[3],
-          mscclShmem.mscclTB.sendPeers[0], mscclShmem.mscclTB.sendPeers[1], mscclShmem.mscclTB.sendPeers[2],
-          mscclShmem.mscclTB.sendPeers[3]
+          (int) nrecv, (int) nsend, (int) nrecv2, (int) nsend2,
+          (int) mscclShmem.mscclTB.recvPeers[0], (int) mscclShmem.mscclTB.recvPeers[1], (int) mscclShmem.mscclTB.recvPeers[2],
+          (int) mscclShmem.mscclTB.recvPeers[3],
+          (int) mscclShmem.mscclTB.sendPeers[0], (int) mscclShmem.mscclTB.sendPeers[1], (int) mscclShmem.mscclTB.sendPeers[2],
+          (int) mscclShmem.mscclTB.sendPeers[3]
         );
         mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<1, MSCCL_MAX_SEND_RECV_PEERS>>(comm, algo, work);
         break;
@@ -447,11 +447,11 @@ __device__ __forceinline__ void mscclRunInterpreter(
           "high nrecv: nrecv=%d, nsend=%d, nrecv2=%d, nsend2=%d, "
           "recvPeers=[%d,%d,%d,%d], "
           "sendPeers=[%d,%d,%d,%d]\n",
-          nrecv, nsend, nrecv2, nsend2,
-          mscclShmem.mscclTB.recvPeers[0], mscclShmem.mscclTB.recvPeers[1], mscclShmem.mscclTB.recvPeers[2],
-          mscclShmem.mscclTB.recvPeers[3],
-          mscclShmem.mscclTB.sendPeers[0], mscclShmem.mscclTB.sendPeers[1], mscclShmem.mscclTB.sendPeers[2],
-          mscclShmem.mscclTB.sendPeers[3]
+          (int) nrecv, (int) nsend, (int) nrecv2, (int) nsend2,
+          (int) mscclShmem.mscclTB.recvPeers[0], (int) mscclShmem.mscclTB.recvPeers[1], (int) mscclShmem.mscclTB.recvPeers[2],
+          (int) mscclShmem.mscclTB.recvPeers[3],
+          (int) mscclShmem.mscclTB.sendPeers[0], (int) mscclShmem.mscclTB.sendPeers[1], (int) mscclShmem.mscclTB.sendPeers[2],
+          (int) mscclShmem.mscclTB.sendPeers[3]
         );
         mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<MSCCL_MAX_SEND_RECV_PEERS, 1>>(comm, algo, work);
         break;
@@ -473,11 +473,11 @@ __device__ __forceinline__ void mscclRunInterpreter(
       "uncovered case: nrecv=%d, nsend=%d, nrecv2=%d, nsend2=%d, "
       "recvPeers=[%d,%d,%d,%d], "
       "sendPeers=[%d,%d,%d,%d]\n",
-      nrecv, nsend, nrecv2, nsend2,
-      mscclShmem.mscclTB.recvPeers[0], mscclShmem.mscclTB.recvPeers[1], mscclShmem.mscclTB.recvPeers[2],
-      mscclShmem.mscclTB.recvPeers[3],
-      mscclShmem.mscclTB.sendPeers[0], mscclShmem.mscclTB.sendPeers[1], mscclShmem.mscclTB.sendPeers[2],
-      mscclShmem.mscclTB.sendPeers[3]
+      (int) nrecv, (int) nsend, (int) nrecv2, (int) nsend2,
+      (int) mscclShmem.mscclTB.recvPeers[0], (int) mscclShmem.mscclTB.recvPeers[1], (int) mscclShmem.mscclTB.recvPeers[2],
+      (int) mscclShmem.mscclTB.recvPeers[3],
+      (int) mscclShmem.mscclTB.sendPeers[0], (int) mscclShmem.mscclTB.sendPeers[1], (int) mscclShmem.mscclTB.sendPeers[2],
+      (int) mscclShmem.mscclTB.sendPeers[3]
     );
     mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<MSCCL_MAX_SEND_RECV_PEERS, MSCCL_MAX_SEND_RECV_PEERS>>(comm, algo, work);
   }
