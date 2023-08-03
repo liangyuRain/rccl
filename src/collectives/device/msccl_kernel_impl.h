@@ -8,6 +8,8 @@
 #ifndef MSSCLKERNELIMPL_H
 #define MSSCLKERNELIMPL_H
 
+#define HIP_ENABLE_PRINTF
+
 #include "devcomm.h"
 #include "primitives.h"
 #include "collectives.h"
@@ -366,8 +368,8 @@ __device__ __forceinline__ void mscclRunInterpreterHelper(
 template<typename T, typename RedOp, typename Proto>
 __device__ __forceinline__ void mscclRunInterpreter(
   struct ncclDevComm* comm, struct mscclAlgo* algo, struct mscclWork work) {
-  const int nrecv = mscclShmem.mscclTB.nrecv;
-  const int nsend = mscclShmem.mscclTB.nsend;
+  const uint8_t nrecv = mscclShmem.mscclTB.nrecv;
+  const uint8_t nsend = mscclShmem.mscclTB.nsend;
   if (nrecv <= 1) {
     switch (nsend) {
       case 0:
@@ -384,6 +386,7 @@ __device__ __forceinline__ void mscclRunInterpreter(
         mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<1, 5>>(comm, algo, work);
         break;
       default:
+        printf("high nsend: nrecv=%d, nsend=%d\n", nrecv, nsend);
         mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<1, MSCCL_MAX_SEND_RECV_PEERS>>(comm, algo, work);
         break;
     }
@@ -403,10 +406,12 @@ __device__ __forceinline__ void mscclRunInterpreter(
         mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<5, 1>>(comm, algo, work);
         break;
       default:
+        printf("high nrecv: nrecv=%d, nsend=%d\n", nrecv, nsend);
         mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<MSCCL_MAX_SEND_RECV_PEERS, 1>>(comm, algo, work);
         break;
     }
   } else {
+    printf("uncovered case: nrecv=%d, nsend=%d\n", nrecv, nsend);
     mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<MSCCL_MAX_SEND_RECV_PEERS, MSCCL_MAX_SEND_RECV_PEERS>>(comm, algo, work);
   }
 }
