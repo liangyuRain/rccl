@@ -8,6 +8,8 @@
 #ifndef MSSCLKERNELIMPL_H
 #define MSSCLKERNELIMPL_H
 
+#define HIP_ENABLE_PRINTF
+
 #include "devcomm.h"
 #include "primitives.h"
 #include "collectives.h"
@@ -125,8 +127,8 @@ for (int r = 0; r < numloops; r++) { \
   srcs[r] = srcPointer + srcOffset; \
 }
 
-template<typename T, typename RedOp, typename Proto>
-__device__ __forceinline__ void mscclRunInterpreter(
+template<typename T, typename RedOp, typename Proto, typename Fan>
+__device__ __forceinline__ void mscclRunInterpreterHelper(
   struct ncclDevComm* comm, struct mscclAlgo* algo, struct mscclWork work) {
   const int tid = threadIdx.x;
   const int bid = blockIdx.x;
@@ -210,8 +212,12 @@ __device__ __forceinline__ void mscclRunInterpreter(
   T* thisInput = (T*)mscclShmem.work.sendBuff;
   T* thisOutput = (T*)mscclShmem.work.recvBuff;
   T* thisScratch = (T*)mscclShmem.work.scratchBuffer;
-  int recvPeer = mscclShmem.mscclTB.recvPeer;
-  int sendPeer = mscclShmem.mscclTB.sendPeer;
+  int recvPeers[Fan::MaxRecv];
+  int sendPeers[Fan::MaxSend];
+  #pragma unroll
+  for (int i = 0; i < Fan::MaxRecv; ++i) recvPeers[i] = mscclShmem.mscclTB.recvPeers[i];
+  #pragma unroll
+  for (int i = 0; i < Fan::MaxSend; ++i) sendPeers[i] = mscclShmem.mscclTB.sendPeers[i];
 
   const ssize_t chunkSize = int(Proto::calcBytePerStep()/sizeof(T) * (Proto::Id == NCCL_PROTO_SIMPLE ? MSCCL_CHUNKSTEPS : 1));
   int minChunkSize;
@@ -223,8 +229,8 @@ __device__ __forceinline__ void mscclRunInterpreter(
   }
 
   RedOp redFn(mscclShmem.work.redOpArg);
-  Primitives<T, RedOp, FanAsymmetric<1,1>, 1, Proto, 0> prims
-    (tid, nthreads, &recvPeer, &sendPeer, thisInput, thisOutput, mscclShmem.work.redOpArg);
+  Primitives<T, RedOp, Fan, 1, Proto, 0> prims
+    (tid, nthreads, recvPeers, sendPeers, thisInput, thisOutput, mscclShmem.work.redOpArg);
 
   const ssize_t sizePerMscclChunk = mscclShmem.work.count / mscclShmem.work.nChunksPerLoop;
   uint32_t maxAllowedCount = mscclShmem.work.maxAllowedCount;
@@ -356,6 +362,57 @@ __device__ __forceinline__ void mscclRunInterpreter(
       }
       step++;
     }
+  }
+}
+
+template<typename T, typename RedOp, typename Proto>
+__device__ __forceinline__ void mscclRunInterpreter(
+  struct ncclDevComm* comm, struct mscclAlgo* algo, struct mscclWork work) {
+  const uint8_t nrecv = mscclShmem.mscclTB.nrecv;
+  const uint8_t nsend = mscclShmem.mscclTB.nsend;
+  if (nrecv <= 1) {
+    switch (nsend) {
+      case 0:
+      case 1:
+        mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<1, 1>>(comm, algo, work);
+        break;
+      case 2:
+        mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<1, 2>>(comm, algo, work);
+        break;
+      case 3:
+        mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<1, 3>>(comm, algo, work);
+        break;
+      case 5:
+        mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<1, 5>>(comm, algo, work);
+        break;
+      default:
+        printf("high nsend: nrecv=%d, nsend=%d\n", nrecv, nsend);
+        mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<1, MSCCL_MAX_SEND_RECV_PEERS>>(comm, algo, work);
+        break;
+    }
+  } else if (nsend <= 1) {
+    switch (nrecv) {
+      case 0:
+      case 1:
+        mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<1, 1>>(comm, algo, work);
+        break;
+      case 2:
+        mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<2, 1>>(comm, algo, work);
+        break;
+      case 3:
+        mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<3, 1>>(comm, algo, work);
+        break;
+      case 5:
+        mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<5, 1>>(comm, algo, work);
+        break;
+      default:
+        printf("high nrecv: nrecv=%d, nsend=%d\n", nrecv, nsend);
+        mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<MSCCL_MAX_SEND_RECV_PEERS, 1>>(comm, algo, work);
+        break;
+    }
+  } else {
+    printf("uncovered case: nrecv=%d, nsend=%d\n", nrecv, nsend);
+    mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<MSCCL_MAX_SEND_RECV_PEERS, MSCCL_MAX_SEND_RECV_PEERS>>(comm, algo, work);
   }
 }
 

@@ -409,10 +409,12 @@ ncclResult_t mscclGetAlgoFromXmlFile(const char* str, struct mscclAlgo* algo, in
         for (int t=0; t<node->nSubs; t++) {
           struct mscclXmlNode* threadBlockNode = node->subs[t];
           if (strcmp(threadBlockNode->name, "tb") == 0) {
-            int bid, recvPeer, sendPeer, channelId;
+            int bid, channelId;
+            int recvPeers[MSCCL_MAX_SEND_RECV_PEERS];
+            int sendPeers[MSCCL_MAX_SEND_RECV_PEERS];
             NCCLCHECK(mscclXmlGetAttrInt(threadBlockNode, "id", &bid));
-            NCCLCHECK(mscclXmlGetAttrInt(threadBlockNode, "recv", &recvPeer));
-            NCCLCHECK(mscclXmlGetAttrInt(threadBlockNode, "send", &sendPeer));
+            NCCLCHECK(mscclXmlGetAttrInts(threadBlockNode, "recv", recvPeers, MSCCL_MAX_SEND_RECV_PEERS));
+            NCCLCHECK(mscclXmlGetAttrInts(threadBlockNode, "send", sendPeers, MSCCL_MAX_SEND_RECV_PEERS));
             NCCLCHECK(mscclXmlGetAttrInt(threadBlockNode, "chan", &channelId));
             if (bid < 0) {
               WARN("MSCCL: bid must be not negative. bid: %d", bid);
@@ -428,24 +430,47 @@ ncclResult_t mscclGetAlgoFromXmlFile(const char* str, struct mscclAlgo* algo, in
             }
             blockExists[bid] = 1;
 
-            if (recvPeer == id || sendPeer == id) {
-              WARN("MSCCL: peer (%d,%d) and gpu id (%d) must be different", recvPeer, sendPeer, id);
-              return ncclInvalidUsage;
-            }
             struct mscclThreadBlock* sTB = &algo->mscclTBs[bid];
             sTB->nSteps = 0;
-            if (recvPeer < -1 || sendPeer < -1) {
-              WARN("MSCCL: wrong recvPeer (%d) or sendPeer (%d) in thread block %d on gpu %d", recvPeer, sendPeer, bid, id);
-              return ncclInvalidUsage;
+            sTB->nrecv = 0;
+            sTB->nsend = 0;
+            for (int i = 0; i < MSCCL_MAX_SEND_RECV_PEERS; ++i) {
+              int recvPeer = recvPeers[i];
+              int sendPeer = sendPeers[i];
+              if (recvPeer == id || sendPeer == id) {
+                WARN("MSCCL: peer (%d,%d) and gpu id (%d) must be different", recvPeer, sendPeer, id);
+                return ncclInvalidUsage;
+              }
+
+              if (recvPeer < -1 || sendPeer < -1) {
+                WARN("MSCCL: wrong recvPeer (%d) or sendPeer (%d) in thread block %d on gpu %d", recvPeer, sendPeer, bid, id);
+                return ncclInvalidUsage;
+              }
+
+              if (recvPeer == id || sendPeer == id) {
+                WARN("MSCCL: recvPeer (%d) or sendPeer (%d) for thread block %d cannot be gpu %d", recvPeer, sendPeer, bid, id);
+                return ncclInvalidUsage;
+              }
+
+              if (i > 0) {
+                if ((recvPeer >= 0 && recvPeers[i - 1] == -1) || (sendPeer >= 0 && sendPeers[i - 1] == -1)) {
+                  WARN("MSCCL: send/recv peer list cannot have nonterminating -1");
+                  return ncclInvalidUsage;
+                }
+                for (int j = 0; j < i; ++j) {
+                  if ((recvPeer >= 0 && recvPeer == recvPeers[j]) || (sendPeer >= 0 && sendPeer == sendPeers[j])) {
+                    WARN("MSCCL: duplicate send/recv peers at threadblock %d GPU %d", bid, id);
+                    return ncclInvalidUsage;
+                  }
+                }
+              }
+
+              sTB->recvPeers[i] = recvPeer;
+              sTB->sendPeers[i] = sendPeer;
+              if (recvPeer >= 0) ++sTB->nrecv;
+              if (sendPeer >= 0) ++sTB->nsend;
             }
 
-            if (recvPeer == id || sendPeer == id) {
-              WARN("MSCCL: recvPeer (%d) or sendPeer (%d) for thread block %d cannot be gpu %d", recvPeer, sendPeer, bid, id);
-              return ncclInvalidUsage;
-            }
-
-            sTB->recvPeer = recvPeer;
-            sTB->sendPeer = sendPeer;
             if (channelId < 0 || channelId > MAXCHANNELS) {
               WARN("MSCCL: threadblock %d on GPU %d has an invalid channel %d", bid, id, channelId);
               return ncclInvalidUsage;
@@ -582,7 +607,7 @@ ncclResult_t mscclGetAlgoFromXmlFile(const char* str, struct mscclAlgo* algo, in
                   mscclTran->count = count;
 
                   if (hasSend) {
-                    if (sendPeer < 0) {
+                    if (sendPeers[0] < 0) {
                       WARN("MSCCL: there is a send in thread block %d on GPU %d without a sendPeer.", bid, id);
                       return ncclInvalidUsage;
                     }
@@ -595,7 +620,7 @@ ncclResult_t mscclGetAlgoFromXmlFile(const char* str, struct mscclAlgo* algo, in
                     sendPeerInfo->nTransmissionsOfCount[count]++;
                   }
                   if (hasRecv) {
-                    if (recvPeer < 0) {
+                    if (recvPeers[0] < 0) {
                       WARN("MSCCL: there is a recv in thread block %d on GPU %d without a recvPeer.", bid, id);
                       return ncclInvalidUsage;
                     }
@@ -671,12 +696,16 @@ ncclResult_t mscclGetAlgoFromXmlFile(const char* str, struct mscclAlgo* algo, in
               }
             }
 
-            if (sTB->sendPeer >= 0) {
-              mscclChannel->sendPeerInfo[mscclChannel->nSendPeers].peer = sTB->sendPeer;
+            if (sTB->sendPeers[0] >= 0) {
+              for (int i = 0; i < MSCCL_MAX_SEND_RECV_PEERS; ++i) {
+                mscclChannel->sendPeerInfo[mscclChannel->nSendPeers].peers[i] = sTB->sendPeers[i];
+              }
               mscclChannel->nSendPeers++;
             }
-            if (sTB->recvPeer >= 0) {
-              mscclChannel->recvPeerInfo[mscclChannel->nRecvPeers].peer = sTB->recvPeer;
+            if (sTB->recvPeers[0] >= 0) {
+              for (int i = 0; i < MSCCL_MAX_SEND_RECV_PEERS; ++i) {
+                mscclChannel->recvPeerInfo[mscclChannel->nRecvPeers].peers[i] = sTB->recvPeers[i];
+              }
               mscclChannel->nRecvPeers++;
             }
           }
