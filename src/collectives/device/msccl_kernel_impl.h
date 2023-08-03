@@ -368,7 +368,7 @@ __device__ __forceinline__ void mscclRunInterpreter(
   struct ncclDevComm* comm, struct mscclAlgo* algo, struct mscclWork work) {
   const int nrecv = mscclShmem.mscclTB.nrecv;
   const int nsend = mscclShmem.mscclTB.nsend;
-  if (nrecv == 1) {
+  if (nrecv <= 1) {
     switch (nsend) {
       case 0:
       case 1:
@@ -387,7 +387,7 @@ __device__ __forceinline__ void mscclRunInterpreter(
         mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<1, MSCCL_MAX_SEND_RECV_PEERS>>(comm, algo, work);
         break;
     }
-  } else if (nsend == 1) {
+  } else if (nsend <= 1) {
     switch (nrecv) {
       case 0:
       case 1:
