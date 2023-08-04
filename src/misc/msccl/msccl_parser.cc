@@ -471,6 +471,22 @@ ncclResult_t mscclGetAlgoFromXmlFile(const char* str, struct mscclAlgo* algo, in
               if (sendPeer >= 0) ++sTB->nsend;
             }
 
+            for (int i = 0; i < MSCCL_MAX_SEND_RECV_PEERS; ++i) {
+              int recvPeer = sTB->recvPeers[i];
+              int sendPeer = sTB->sendPeers[i];
+              if (recvPeer < -1 || sendPeer < -1 || recvPeer >= 32 || recvPeer >= 32) {
+                WARN("MSCCL: invalid recvPeer (%d) or sendPeer (%d) at threadblock %d GPU %d", recvPeer, sendPeer, bid, id);
+                return ncclInvalidUsage;
+              }
+            }
+
+            const int nrecv = sTB->nrecv;
+            const int nsend = sTB->nsend;
+            if (nrecv < 0 || nsend < 0 || nrecv > MSCCL_MAX_SEND_RECV_PEERS || nsend > MSCCL_MAX_SEND_RECV_PEERS) {
+              WARN("MSCCL: invalid nrecv (%d) or nsend (%d) at threadblock %d GPU %d", nrecv, nsend, bid, id);
+              return ncclInvalidUsage;
+            }
+
             if (channelId < 0 || channelId > MAXCHANNELS) {
               WARN("MSCCL: threadblock %d on GPU %d has an invalid channel %d", bid, id, channelId);
               return ncclInvalidUsage;
