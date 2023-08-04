@@ -134,6 +134,22 @@ __device__ __forceinline__ void mscclRunInterpreterHelper(
   const int bid = blockIdx.x;
   const int nthreads = NCCL_MAX_NTHREADS;
 
+  if (Fan::MaxRecv > 1 || Fan::MaxSend > 1) {
+    printf(
+      "Fan::MaxRecv/Fan::MaxSend: Fan=(%d,%d), sizeof(mscclThreadBlock)=%d, nrecv=%d, nsend=%d, nSteps=%d, channelId=%d, tid=%d, bid=%d"
+      "recvPeers=[%d,%d,%d,%d,%d,%d,%d,%d], "
+      "sendPeers=[%d,%d,%d,%d,%d,%d,%d,%d]\n",
+      (int) Fan::MaxRecv, (int) Fan::MaxSend,
+      (int) sizeof(struct mscclThreadBlock), (int) mscclShmem.mscclTB.nrecv, (int) mscclShmem.mscclTB.nsend, (int) mscclShmem.mscclTB.nSteps, (int) mscclShmem.mscclTB.channelId, (int) tid, (int) bid,
+      (int) mscclShmem.mscclTB.recvPeers[0], (int) mscclShmem.mscclTB.recvPeers[1], (int) mscclShmem.mscclTB.recvPeers[2],
+      (int) mscclShmem.mscclTB.recvPeers[3], (int) mscclShmem.mscclTB.recvPeers[4], (int) mscclShmem.mscclTB.recvPeers[5],
+      (int) mscclShmem.mscclTB.recvPeers[6], (int) mscclShmem.mscclTB.recvPeers[7],
+      (int) mscclShmem.mscclTB.sendPeers[0], (int) mscclShmem.mscclTB.sendPeers[1], (int) mscclShmem.mscclTB.sendPeers[2],
+      (int) mscclShmem.mscclTB.sendPeers[3], (int) mscclShmem.mscclTB.sendPeers[4], (int) mscclShmem.mscclTB.sendPeers[5],
+      (int) mscclShmem.mscclTB.sendPeers[6], (int) mscclShmem.mscclTB.sendPeers[7]
+    );
+  }
+
   // User pointers for primitives
   T* thisInput = (T*)mscclShmem.work.sendBuff;
   T* thisOutput = (T*)mscclShmem.work.recvBuff;
@@ -377,7 +393,7 @@ __device__ __forceinline__ void mscclRunInterpreter(
 
   if (nrecv < 0 || nrecv > 1 || nsend < 0 || nsend > 1) {
     printf(
-      "sizeof(mscclThreadBlock)=%d, nrecv=%d, nsend=%d, nSteps=%d, channelId=%d, tid=%d, bid=%d"
+      "nsend/nrecv: sizeof(mscclThreadBlock)=%d, nrecv=%d, nsend=%d, nSteps=%d, channelId=%d, tid=%d, bid=%d"
       "recvPeers=[%d,%d,%d,%d,%d,%d,%d,%d], "
       "sendPeers=[%d,%d,%d,%d,%d,%d,%d,%d]\n",
       (int) sizeof(struct mscclThreadBlock), (int) nrecv, (int) nsend, (int) mscclShmem.mscclTB.nSteps, (int) mscclShmem.mscclTB.channelId, (int) tid, (int) bid,
@@ -390,49 +406,47 @@ __device__ __forceinline__ void mscclRunInterpreter(
     );
   }
 
-  mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<1, 1>>(comm, algo, work, mscclBarrierNext, mscclBarriers);
-
-  // if (nrecv <= 1) {
-  //   switch (nsend) {
-  //     case 0:
-  //     case 1:
-  //       mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<1, 1>>(comm, algo, work, mscclBarrierNext, mscclBarriers);
-  //       break;
-  //     case 2:
-  //       mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<1, 2>>(comm, algo, work, mscclBarrierNext, mscclBarriers);
-  //       break;
-  //     case 3:
-  //       mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<1, 3>>(comm, algo, work, mscclBarrierNext, mscclBarriers);
-  //       break;
-  //     case 5:
-  //       mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<1, 5>>(comm, algo, work, mscclBarrierNext, mscclBarriers);
-  //       break;
-  //     default:
-  //       mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<1, MSCCL_MAX_SEND_RECV_PEERS>>(comm, algo, work, mscclBarrierNext, mscclBarriers);
-  //       break;
-  //   }
-  // } else if (nsend <= 1) {
-  //   switch (nrecv) {
-  //     case 0:
-  //     case 1:
-  //       mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<1, 1>>(comm, algo, work, mscclBarrierNext, mscclBarriers);
-  //       break;
-  //     case 2:
-  //       mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<2, 1>>(comm, algo, work, mscclBarrierNext, mscclBarriers);
-  //       break;
-  //     case 3:
-  //       mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<3, 1>>(comm, algo, work, mscclBarrierNext, mscclBarriers);
-  //       break;
-  //     case 5:
-  //       mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<5, 1>>(comm, algo, work, mscclBarrierNext, mscclBarriers);
-  //       break;
-  //     default:
-  //       mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<MSCCL_MAX_SEND_RECV_PEERS, 1>>(comm, algo, work, mscclBarrierNext, mscclBarriers);
-  //       break;
-  //   }
-  // } else {
-  //   mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<MSCCL_MAX_SEND_RECV_PEERS, MSCCL_MAX_SEND_RECV_PEERS>>(comm, algo, work, mscclBarrierNext, mscclBarriers);
-  // }
+  if (nrecv <= 1) {
+    switch (nsend) {
+      case 0:
+      case 1:
+        mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<1, 1>>(comm, algo, work, mscclBarrierNext, mscclBarriers);
+        break;
+      // case 2:
+      //   mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<1, 2>>(comm, algo, work, mscclBarrierNext, mscclBarriers);
+      //   break;
+      // case 3:
+      //   mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<1, 3>>(comm, algo, work, mscclBarrierNext, mscclBarriers);
+      //   break;
+      // case 5:
+      //   mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<1, 5>>(comm, algo, work, mscclBarrierNext, mscclBarriers);
+      //   break;
+      default:
+        mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<1, MSCCL_MAX_SEND_RECV_PEERS>>(comm, algo, work, mscclBarrierNext, mscclBarriers);
+        break;
+    }
+  } else if (nsend <= 1) {
+    switch (nrecv) {
+      case 0:
+      case 1:
+        mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<1, 1>>(comm, algo, work, mscclBarrierNext, mscclBarriers);
+        break;
+      // case 2:
+      //   mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<2, 1>>(comm, algo, work, mscclBarrierNext, mscclBarriers);
+      //   break;
+      // case 3:
+      //   mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<3, 1>>(comm, algo, work, mscclBarrierNext, mscclBarriers);
+      //   break;
+      // case 5:
+      //   mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<5, 1>>(comm, algo, work, mscclBarrierNext, mscclBarriers);
+      //   break;
+      default:
+        mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<MSCCL_MAX_SEND_RECV_PEERS, 1>>(comm, algo, work, mscclBarrierNext, mscclBarriers);
+        break;
+    }
+  } else {
+    mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<MSCCL_MAX_SEND_RECV_PEERS, MSCCL_MAX_SEND_RECV_PEERS>>(comm, algo, work, mscclBarrierNext, mscclBarriers);
+  }
 }
 
 #define MSCCL_IMPL_KERNEL_ENTRY_FUNC_DEVREDOP_TYPE(devredop, type) \
