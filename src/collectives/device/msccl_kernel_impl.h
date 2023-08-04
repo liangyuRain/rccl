@@ -422,7 +422,7 @@ __device__ __forceinline__ void mscclRunInterpreter(
       //   mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<1, 5>>(comm, algo, work, mscclBarrierNext, mscclBarriers);
       //   break;
       default:
-        printf("nrecv=%d, nsend=%d", (int) nrecv, (int) nsend);
+        printf("high nsend: nrecv=%d, nsend=%d", (int) nrecv, (int) nsend);
         mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<1, MSCCL_MAX_SEND_RECV_PEERS>>(comm, algo, work, mscclBarrierNext, mscclBarriers);
         break;
     }
@@ -442,7 +442,7 @@ __device__ __forceinline__ void mscclRunInterpreter(
       //   mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<5, 1>>(comm, algo, work, mscclBarrierNext, mscclBarriers);
       //   break;
       default:
-        printf("nrecv=%d, nsend=%d", (int) nrecv, (int) nsend);
+        printf("high nrecv: nrecv=%d, nsend=%d", (int) nrecv, (int) nsend);
         mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<MSCCL_MAX_SEND_RECV_PEERS, 1>>(comm, algo, work, mscclBarrierNext, mscclBarriers);
         break;
     }
