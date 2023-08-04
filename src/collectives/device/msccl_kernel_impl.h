@@ -411,7 +411,7 @@ __device__ void mscclRunInterpreter(
       mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<1, 1>>(comm, algo, work, mscclBarrierNext, mscclBarriers);
     } else if (nsend == 6) { // impossible
       printf("high nsend: nrecv=%d, nsend=%d", (int) nrecv, (int) nsend);
-      mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<1, MSCCL_MAX_SEND_RECV_PEERS>>(comm, algo, work, mscclBarrierNext, mscclBarriers);
+      // mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<1, MSCCL_MAX_SEND_RECV_PEERS>>(comm, algo, work, mscclBarrierNext, mscclBarriers);
     } else {
       printf("high nsend: nrecv=%d, nsend=%d", (int) nrecv, (int) nsend);
     }
@@ -420,7 +420,7 @@ __device__ void mscclRunInterpreter(
       mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<1, 1>>(comm, algo, work, mscclBarrierNext, mscclBarriers);
     } else if (nrecv == 6) { // impossible
       printf("high nrecv: nrecv=%d, nsend=%d", (int) nrecv, (int) nsend);
-      mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<MSCCL_MAX_SEND_RECV_PEERS, 1>>(comm, algo, work, mscclBarrierNext, mscclBarriers);
+      // mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<MSCCL_MAX_SEND_RECV_PEERS, 1>>(comm, algo, work, mscclBarrierNext, mscclBarriers);
     } else {
       printf("high nrecv: nrecv=%d, nsend=%d", (int) nrecv, (int) nsend);
     }
