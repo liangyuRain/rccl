@@ -128,27 +128,11 @@ for (int r = 0; r < numloops; r++) { \
 }
 
 template<typename T, typename RedOp, typename Proto, typename Fan>
-__device__ void mscclRunInterpreterHelper(
+__device__ __forceinline__ void mscclRunInterpreterHelper(
   struct ncclDevComm* comm, struct mscclAlgo* algo, struct mscclWork work, uint64_t* mscclBarrierNext, uint64_t* mscclBarriers) {
   const int tid = threadIdx.x;
   const int bid = blockIdx.x;
   const int nthreads = NCCL_MAX_NTHREADS;
-
-  if (Fan::MaxRecv > 1 || Fan::MaxSend > 1) {
-    printf(
-      "Fan::MaxRecv/Fan::MaxSend: Fan=(%d,%d), sizeof(mscclThreadBlock)=%d, nrecv=%d, nsend=%d, nSteps=%d, channelId=%d, tid=%d, bid=%d"
-      "recvPeers=[%d,%d,%d,%d,%d,%d,%d,%d], "
-      "sendPeers=[%d,%d,%d,%d,%d,%d,%d,%d]\n",
-      (int) Fan::MaxRecv, (int) Fan::MaxSend,
-      (int) sizeof(struct mscclThreadBlock), (int) mscclShmem.mscclTB.nrecv, (int) mscclShmem.mscclTB.nsend, (int) mscclShmem.mscclTB.nSteps, (int) mscclShmem.mscclTB.channelId, (int) tid, (int) bid,
-      (int) mscclShmem.mscclTB.recvPeers[0], (int) mscclShmem.mscclTB.recvPeers[1], (int) mscclShmem.mscclTB.recvPeers[2],
-      (int) mscclShmem.mscclTB.recvPeers[3], (int) mscclShmem.mscclTB.recvPeers[4], (int) mscclShmem.mscclTB.recvPeers[5],
-      (int) mscclShmem.mscclTB.recvPeers[6], (int) mscclShmem.mscclTB.recvPeers[7],
-      (int) mscclShmem.mscclTB.sendPeers[0], (int) mscclShmem.mscclTB.sendPeers[1], (int) mscclShmem.mscclTB.sendPeers[2],
-      (int) mscclShmem.mscclTB.sendPeers[3], (int) mscclShmem.mscclTB.sendPeers[4], (int) mscclShmem.mscclTB.sendPeers[5],
-      (int) mscclShmem.mscclTB.sendPeers[6], (int) mscclShmem.mscclTB.sendPeers[7]
-    );
-  }
 
   // User pointers for primitives
   T* thisInput = (T*)mscclShmem.work.sendBuff;
@@ -308,7 +292,7 @@ __device__ void mscclRunInterpreterHelper(
 }
 
 template<typename T, typename RedOp, typename Proto>
-__device__ void mscclRunInterpreter(
+__device__ __forceinline__ void mscclRunInterpreter(
   struct ncclDevComm* comm, struct mscclAlgo* algo, struct mscclWork work) {
   const int tid = threadIdx.x;
   const int bid = blockIdx.x;
@@ -391,37 +375,19 @@ __device__ void mscclRunInterpreter(
   const int nrecv = mscclShmem.mscclTB.nrecv;
   const int nsend = mscclShmem.mscclTB.nsend;
 
-  if (nrecv < 0 || nrecv > 1 || nsend < 0 || nsend > 1) {
-    printf(
-      "nsend/nrecv: sizeof(mscclThreadBlock)=%d, nrecv=%d, nsend=%d, nSteps=%d, channelId=%d, tid=%d, bid=%d"
-      "recvPeers=[%d,%d,%d,%d,%d,%d,%d,%d], "
-      "sendPeers=[%d,%d,%d,%d,%d,%d,%d,%d]\n",
-      (int) sizeof(struct mscclThreadBlock), (int) nrecv, (int) nsend, (int) mscclShmem.mscclTB.nSteps, (int) mscclShmem.mscclTB.channelId, (int) tid, (int) bid,
-      (int) mscclShmem.mscclTB.recvPeers[0], (int) mscclShmem.mscclTB.recvPeers[1], (int) mscclShmem.mscclTB.recvPeers[2],
-      (int) mscclShmem.mscclTB.recvPeers[3], (int) mscclShmem.mscclTB.recvPeers[4], (int) mscclShmem.mscclTB.recvPeers[5],
-      (int) mscclShmem.mscclTB.recvPeers[6], (int) mscclShmem.mscclTB.recvPeers[7],
-      (int) mscclShmem.mscclTB.sendPeers[0], (int) mscclShmem.mscclTB.sendPeers[1], (int) mscclShmem.mscclTB.sendPeers[2],
-      (int) mscclShmem.mscclTB.sendPeers[3], (int) mscclShmem.mscclTB.sendPeers[4], (int) mscclShmem.mscclTB.sendPeers[5],
-      (int) mscclShmem.mscclTB.sendPeers[6], (int) mscclShmem.mscclTB.sendPeers[7]
-    );
-  }
-
   if (nrecv <= 1) {
     if (nsend <= 1) {
       mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<1, 1>>(comm, algo, work, mscclBarrierNext, mscclBarriers);
     } else {
-      printf("high nsend: nrecv=%d, nsend=%d", (int) nrecv, (int) nsend);
       mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<1, MSCCL_MAX_SEND_RECV_PEERS>>(comm, algo, work, mscclBarrierNext, mscclBarriers);
     }
   } else if (nsend <= 1) {
     if (nrecv <= 1) {
       mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<1, 1>>(comm, algo, work, mscclBarrierNext, mscclBarriers);
     } else {
-      printf("high nrecv: nrecv=%d, nsend=%d", (int) nrecv, (int) nsend);
       mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<MSCCL_MAX_SEND_RECV_PEERS, 1>>(comm, algo, work, mscclBarrierNext, mscclBarriers);
     }
   } else {
-    printf("uncovered: nrecv=%d, nsend=%d", (int) nrecv, (int) nsend);
     mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<MSCCL_MAX_SEND_RECV_PEERS, MSCCL_MAX_SEND_RECV_PEERS>>(comm, algo, work, mscclBarrierNext, mscclBarriers);
   }
 }
