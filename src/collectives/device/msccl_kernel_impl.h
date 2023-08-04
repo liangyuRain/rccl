@@ -377,10 +377,10 @@ __device__ __forceinline__ void mscclRunInterpreter(
 
   if (nrecv < 0 || nrecv > 1 || nsend < 0 || nsend > 1) {
     printf(
-      "sizeof(mscclThreadBlock)=%d, nrecv=%d, nsend=%d, nrecv2=%d, nsend2=%d, nSteps=%d, channelId=%d, tid=%d, bid=%d"
+      "sizeof(mscclThreadBlock)=%d, nrecv=%d, nsend=%d, nSteps=%d, channelId=%d, tid=%d, bid=%d"
       "recvPeers=[%d,%d,%d,%d,%d,%d,%d,%d], "
       "sendPeers=[%d,%d,%d,%d,%d,%d,%d,%d]\n",
-      (int) sizeof(struct mscclThreadBlock), (int) nrecv, (int) nsend, (int) nrecv2, (int) nsend2, (int) mscclShmem.mscclTB.nSteps, (int) mscclShmem.mscclTB.channelId, (int) tid, (int) bid,
+      (int) sizeof(struct mscclThreadBlock), (int) nrecv, (int) nsend, (int) mscclShmem.mscclTB.nSteps, (int) mscclShmem.mscclTB.channelId, (int) tid, (int) bid,
       (int) mscclShmem.mscclTB.recvPeers[0], (int) mscclShmem.mscclTB.recvPeers[1], (int) mscclShmem.mscclTB.recvPeers[2],
       (int) mscclShmem.mscclTB.recvPeers[3], (int) mscclShmem.mscclTB.recvPeers[4], (int) mscclShmem.mscclTB.recvPeers[5],
       (int) mscclShmem.mscclTB.recvPeers[6], (int) mscclShmem.mscclTB.recvPeers[7],
