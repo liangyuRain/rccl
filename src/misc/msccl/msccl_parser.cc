@@ -308,6 +308,13 @@ ncclResult_t mscclGetAlgoFromXmlFile(const char* str, struct mscclAlgo* algo, in
 
   // zeroing out all entries.
   memset(algo, 0, sizeof(struct mscclAlgo));
+  for (int i = 0; i < MSCCL_MAX_NUM_THREAD_BLOCKS; ++i) {
+    for (int j = 0; j < MSCCL_MAX_SEND_RECV_PEERS; ++j) {
+      algo->mscclTBs[i].recvPeers[j] = -1;
+      algo->mscclTBs[i].sendPeers[j] = -1;
+    }
+  }
+
   struct mscclXmlNode* topNode;
   NCCLCHECK(mscclXmlFindTag(xml, "algo", &topNode));
 
