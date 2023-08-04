@@ -409,14 +409,14 @@ __device__ __forceinline__ void mscclRunInterpreter(
   if (nrecv <= 1) {
     if (nsend <= 1) {
       mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<1, 1>>(comm, algo, work, mscclBarrierNext, mscclBarriers);
-    } else {
+    } else if (nsend == nrecv) { // impossible
       printf("high nsend: nrecv=%d, nsend=%d", (int) nrecv, (int) nsend);
       mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<1, MSCCL_MAX_SEND_RECV_PEERS>>(comm, algo, work, mscclBarrierNext, mscclBarriers);
     }
   } else if (nsend <= 1) {
     if (nrecv <= 1) {
       mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<1, 1>>(comm, algo, work, mscclBarrierNext, mscclBarriers);
-    } else {
+    } else if (nsend == nrecv) { // impossible
       printf("high nrecv: nrecv=%d, nsend=%d", (int) nrecv, (int) nsend);
       mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<MSCCL_MAX_SEND_RECV_PEERS, 1>>(comm, algo, work, mscclBarrierNext, mscclBarriers);
     }
