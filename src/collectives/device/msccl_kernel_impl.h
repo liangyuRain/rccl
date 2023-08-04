@@ -134,80 +134,6 @@ __device__ __forceinline__ void mscclRunInterpreterHelper(
   const int bid = blockIdx.x;
   const int nthreads = NCCL_MAX_NTHREADS;
 
-  // initialize barriers
-  if (tid == 0) {
-    for (auto i = 0; i < NCCL_MAX_GROUPS; i++) {
-      ncclShmem.groups[i].barrier = 0;
-      for (auto j = 0; j < NCCL_MAX_GROUPS; j++) ncclShmem.groups[i].barrier_next[j] = 0;
-    }
-  }
-  uint64_t* mscclBarrierNext = ncclShmem.groups[0].barrier_next;
-  uint64_t* mscclBarriers = &ncclShmem.groups[0].barrier;
-
-  // initialize mscclShmem.mscclTB
-  threadBlockCopy(
-    (uint64_t *)&mscclShmem.mscclTB, (uint64_t *)(algo->mscclTBs + bid),
-    sizeof(struct mscclThreadBlock) / sizeof(uint64_t), tid, nthreads);
-  __synclds(); // publish mscclShmem.mscclTB.channelId
-
-  // initialize ncclShmem and mscclShmem.work
-  int channelId = mscclShmem.mscclTB.channelId;
-  {
-    void *dst, *src;
-    int bytes = 0;
-    // Use first 3 warps to load comm, channel, and work into shmem
-    switch (tid/WARP_SIZE) {
-    case 0:
-      dst = &ncclShmem.comm;
-      src = comm;
-      bytes = sizeof(ncclDevComm);
-      static_assert(sizeof(ncclDevComm) <= sizeof(uint64_t) * WARP_SIZE, "ncclDevComm cannot be loaded by a single warp in one insn.");
-      break;
-    case 1:
-      // Get address of channel without incurring indirect load from ncclDevComm::channels
-      dst = &ncclShmem.channel;
-      src = &((ncclDevCommAndChannels*)comm)->channels[channelId];
-      bytes = sizeof(ncclDevChannel);
-      static_assert(sizeof(ncclDevChannel) <= sizeof(uint64_t) * WARP_SIZE, "ncclDevChannel cannot be loaded by a single warp in one insn.");
-      break;
-    case 2:
-      dst = &mscclShmem.work;
-      src = &work;
-      bytes = sizeof(mscclWork);
-      static_assert(sizeof(mscclWork) <= sizeof(uint64_t) * WARP_SIZE, "mscclWork cannot be loaded by a single warp in one insn.");
-      break;
-    case 3:
-      /* set abort flag to 0 */
-      if (tid == 3 * WARP_SIZE) ncclShmem.aborted = 0;
-      break;
-    default:
-      break;
-    }
-    copyToShmem8(tid%WARP_SIZE, dst, src, bytes);
-  }
-  __synclds(); // publish shmem
-
-  // Deference reduce args if required
-  if (tid == 0 && mscclShmem.work.hasReduce && mscclShmem.work.redOpArgIsPtr) {
-    switch (sizeof(T)) {
-      case 1:
-        mscclShmem.work.redOpArg = *reinterpret_cast<uint8_t*>(mscclShmem.work.redOpArg);
-        break;
-      case 2:
-        mscclShmem.work.redOpArg = *reinterpret_cast<uint16_t*>(mscclShmem.work.redOpArg);
-        break;
-      case 4:
-        mscclShmem.work.redOpArg = *reinterpret_cast<uint32_t*>(mscclShmem.work.redOpArg);
-        break;
-      case 8:
-        mscclShmem.work.redOpArg = *reinterpret_cast<uint64_t*>(mscclShmem.work.redOpArg);
-        break;
-      default:
-        break;
-    }
-  }
-  __synclds(); // publish shmem
-
   // User pointers for primitives
   T* thisInput = (T*)mscclShmem.work.sendBuff;
   T* thisOutput = (T*)mscclShmem.work.recvBuff;
@@ -368,8 +294,86 @@ __device__ __forceinline__ void mscclRunInterpreterHelper(
 template<typename T, typename RedOp, typename Proto>
 __device__ __forceinline__ void mscclRunInterpreter(
   struct ncclDevComm* comm, struct mscclAlgo* algo, struct mscclWork work) {
-  const uint8_t nrecv = mscclShmem.mscclTB.nrecv;
-  const uint8_t nsend = mscclShmem.mscclTB.nsend;
+  const int tid = threadIdx.x;
+  const int bid = blockIdx.x;
+  const int nthreads = NCCL_MAX_NTHREADS;
+
+  // initialize barriers
+  if (tid == 0) {
+    for (auto i = 0; i < NCCL_MAX_GROUPS; i++) {
+      ncclShmem.groups[i].barrier = 0;
+      for (auto j = 0; j < NCCL_MAX_GROUPS; j++) ncclShmem.groups[i].barrier_next[j] = 0;
+    }
+  }
+  uint64_t* mscclBarrierNext = ncclShmem.groups[0].barrier_next;
+  uint64_t* mscclBarriers = &ncclShmem.groups[0].barrier;
+
+  // initialize mscclShmem.mscclTB
+  threadBlockCopy(
+    (uint64_t *)&mscclShmem.mscclTB, (uint64_t *)(algo->mscclTBs + bid),
+    sizeof(struct mscclThreadBlock) / sizeof(uint64_t), tid, nthreads);
+  __synclds(); // publish mscclShmem.mscclTB.channelId
+
+  // initialize ncclShmem and mscclShmem.work
+  int channelId = mscclShmem.mscclTB.channelId;
+  {
+    void *dst, *src;
+    int bytes = 0;
+    // Use first 3 warps to load comm, channel, and work into shmem
+    switch (tid/WARP_SIZE) {
+    case 0:
+      dst = &ncclShmem.comm;
+      src = comm;
+      bytes = sizeof(ncclDevComm);
+      static_assert(sizeof(ncclDevComm) <= sizeof(uint64_t) * WARP_SIZE, "ncclDevComm cannot be loaded by a single warp in one insn.");
+      break;
+    case 1:
+      // Get address of channel without incurring indirect load from ncclDevComm::channels
+      dst = &ncclShmem.channel;
+      src = &((ncclDevCommAndChannels*)comm)->channels[channelId];
+      bytes = sizeof(ncclDevChannel);
+      static_assert(sizeof(ncclDevChannel) <= sizeof(uint64_t) * WARP_SIZE, "ncclDevChannel cannot be loaded by a single warp in one insn.");
+      break;
+    case 2:
+      dst = &mscclShmem.work;
+      src = &work;
+      bytes = sizeof(mscclWork);
+      static_assert(sizeof(mscclWork) <= sizeof(uint64_t) * WARP_SIZE, "mscclWork cannot be loaded by a single warp in one insn.");
+      break;
+    case 3:
+      /* set abort flag to 0 */
+      if (tid == 3 * WARP_SIZE) ncclShmem.aborted = 0;
+      break;
+    default:
+      break;
+    }
+    copyToShmem8(tid%WARP_SIZE, dst, src, bytes);
+  }
+  __synclds(); // publish shmem
+
+  // Deference reduce args if required
+  if (tid == 0 && mscclShmem.work.hasReduce && mscclShmem.work.redOpArgIsPtr) {
+    switch (sizeof(T)) {
+      case 1:
+        mscclShmem.work.redOpArg = *reinterpret_cast<uint8_t*>(mscclShmem.work.redOpArg);
+        break;
+      case 2:
+        mscclShmem.work.redOpArg = *reinterpret_cast<uint16_t*>(mscclShmem.work.redOpArg);
+        break;
+      case 4:
+        mscclShmem.work.redOpArg = *reinterpret_cast<uint32_t*>(mscclShmem.work.redOpArg);
+        break;
+      case 8:
+        mscclShmem.work.redOpArg = *reinterpret_cast<uint64_t*>(mscclShmem.work.redOpArg);
+        break;
+      default:
+        break;
+    }
+  }
+  __synclds(); // publish shmem
+
+  const int nrecv = mscclShmem.mscclTB.nrecv;
+  const int nsend = mscclShmem.mscclTB.nsend;
   if (nrecv <= 1) {
     switch (nsend) {
       case 0:
@@ -386,7 +390,6 @@ __device__ __forceinline__ void mscclRunInterpreter(
         mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<1, 5>>(comm, algo, work);
         break;
       default:
-        printf("high nsend: nrecv=%d, nsend=%d\n", nrecv, nsend);
         mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<1, MSCCL_MAX_SEND_RECV_PEERS>>(comm, algo, work);
         break;
     }
@@ -406,12 +409,10 @@ __device__ __forceinline__ void mscclRunInterpreter(
         mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<5, 1>>(comm, algo, work);
         break;
       default:
-        printf("high nrecv: nrecv=%d, nsend=%d\n", nrecv, nsend);
         mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<MSCCL_MAX_SEND_RECV_PEERS, 1>>(comm, algo, work);
         break;
     }
   } else {
-    printf("uncovered case: nrecv=%d, nsend=%d\n", nrecv, nsend);
     mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<MSCCL_MAX_SEND_RECV_PEERS, MSCCL_MAX_SEND_RECV_PEERS>>(comm, algo, work);
   }
 }
