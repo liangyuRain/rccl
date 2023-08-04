@@ -129,7 +129,7 @@ for (int r = 0; r < numloops; r++) { \
 
 template<typename T, typename RedOp, typename Proto, typename Fan>
 __device__ __forceinline__ void mscclRunInterpreterHelper(
-  struct ncclDevComm* comm, struct mscclAlgo* algo, struct mscclWork work, uint64_t* mscclBarrierNext, uint64_t* mscclBarriers) {
+  uint64_t* mscclBarrierNext, uint64_t* mscclBarriers, int const *recvPeers, int const *sendPeers) {
   const int tid = threadIdx.x;
   const int bid = blockIdx.x;
   const int nthreads = NCCL_MAX_NTHREADS;
@@ -138,12 +138,6 @@ __device__ __forceinline__ void mscclRunInterpreterHelper(
   T* thisInput = (T*)mscclShmem.work.sendBuff;
   T* thisOutput = (T*)mscclShmem.work.recvBuff;
   T* thisScratch = (T*)mscclShmem.work.scratchBuffer;
-  int recvPeers[Fan::MaxRecv];
-  int sendPeers[Fan::MaxSend];
-  #pragma unroll
-  for (int i = 0; i < Fan::MaxRecv; ++i) recvPeers[i] = mscclShmem.mscclTB.recvPeers[i];
-  #pragma unroll
-  for (int i = 0; i < Fan::MaxSend; ++i) sendPeers[i] = mscclShmem.mscclTB.sendPeers[i];
 
   const ssize_t chunkSize = int(Proto::calcBytePerStep()/sizeof(T) * (Proto::Id == NCCL_PROTO_SIMPLE ? MSCCL_CHUNKSTEPS : 1));
   int minChunkSize;
@@ -372,23 +366,31 @@ __device__ __forceinline__ void mscclRunInterpreter(
   }
   __synclds(); // publish shmem
 
+  int recvPeers[MSCCL_MAX_SEND_RECV_PEERS];
+  int sendPeers[MSCCL_MAX_SEND_RECV_PEERS];
+  #pragma unroll
+  for (int i = 0; i < MSCCL_MAX_SEND_RECV_PEERS; ++i) {
+    recvPeers[i] = mscclShmem.mscclTB.recvPeers[i];
+    sendPeers[i] = mscclShmem.mscclTB.sendPeers[i];
+  }
+
   const int nrecv = mscclShmem.mscclTB.nrecv;
   const int nsend = mscclShmem.mscclTB.nsend;
 
   if (nrecv <= 1) {
     if (nsend <= 1) {
-      mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<1, 1>>(comm, algo, work, mscclBarrierNext, mscclBarriers);
+      mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<1, 1>>(mscclBarrierNext, mscclBarriers, recvPeers, sendPeers);
     } else {
-      mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<1, MSCCL_MAX_SEND_RECV_PEERS>>(comm, algo, work, mscclBarrierNext, mscclBarriers);
+      mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<1, MSCCL_MAX_SEND_RECV_PEERS>>(mscclBarrierNext, mscclBarriers, recvPeers, sendPeers);
     }
   } else if (nsend <= 1) {
     if (nrecv <= 1) {
-      mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<1, 1>>(comm, algo, work, mscclBarrierNext, mscclBarriers);
+      mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<1, 1>>(mscclBarrierNext, mscclBarriers, recvPeers, sendPeers);
     } else {
-      mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<MSCCL_MAX_SEND_RECV_PEERS, 1>>(comm, algo, work, mscclBarrierNext, mscclBarriers);
+      mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<MSCCL_MAX_SEND_RECV_PEERS, 1>>(mscclBarrierNext, mscclBarriers, recvPeers, sendPeers);
     }
   } else {
-    mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<MSCCL_MAX_SEND_RECV_PEERS, MSCCL_MAX_SEND_RECV_PEERS>>(comm, algo, work, mscclBarrierNext, mscclBarriers);
+    mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<MSCCL_MAX_SEND_RECV_PEERS, MSCCL_MAX_SEND_RECV_PEERS>>(mscclBarrierNext, mscclBarriers, recvPeers, sendPeers);
   }
 }
 
