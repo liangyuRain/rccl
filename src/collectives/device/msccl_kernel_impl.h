@@ -127,30 +127,49 @@ for (int r = 0; r < numloops; r++) { \
   srcs[r] = srcPointer + srcOffset; \
 }
 
-template<typename T, typename RedOp, typename Proto, typename Fan>
-__device__ __forceinline__ void mscclRunInterpreterHelper(
-  uint64_t* mscclBarrierNext, uint64_t* mscclBarriers, int const *recvPeers, int const *sendPeers) {
+template<typename T>
+class PrimitivesWrapperInterface {
+public:
+  virtual __device__ void setDataPtrs(void const *inputBuf, void *outputBuf) = 0;
+  virtual __device__ void sendWithBarrier(intptr_t inpIx, int eltN) = 0;
+  virtual __device__ void recv(intptr_t outIx, int eltN) = 0;
+  virtual __device__ void reduce(T** srcs, int nsrcs, T** dsts, int ndsts, int eltN) = 0;
+  virtual __device__ void recvCopySend(intptr_t outIx, int eltN) = 0;
+  virtual __device__ void recvReduceSend(intptr_t inpIx, int eltN) = 0;
+  virtual __device__ void recvReduceCopySend(intptr_t inpIx, intptr_t outIx, int eltN) = 0;
+  virtual __device__ void recvReduceCopy(intptr_t inpIx, intptr_t outIx, int eltN) = 0;
+  virtual __device__ void localCopy(T* srcs, T* dsts, int eltN) = 0;
+}
+
+template<typename T, typename RedOp, typename Fan, typename Proto>
+class PrimitivesWrapper : public PrimitiveWrapperInterface<T> {
+
+  const Primitives<T, RedOp, Fan, 1, Proto, 0> prims;
+
+public:
+  __device__ PrimitivesWrapper(
+      const int tid, const int nthreads, int const *recvPeers, int const *sendPeers,
+      void const *inputBuf, void *outputBuf, uint64_t redOpArg
+    ): prims(tid, nthreads, recvPeers, sendPeers, inputBuf, outputBuf, redOpArg) {}
+
+  __device__ void setDataPtrs(void const *inputBuf, void *outputBuf) override { prims.setDataPtrs(inputBuf, outputBuf); }
+  __device__ void sendWithBarrier(intptr_t inpIx, int eltN) override { prims.sendWithBarrier(inpIx, eltN); }
+  __device__ void recv(intptr_t outIx, int eltN) override { prims.recv(outIx, eltN); }
+  __device__ void reduce(T** srcs, int nsrcs, T** dsts, int ndsts, int eltN) override { prims.reduce(srcs, nsrcs, dsts, ndsts, eltN); }
+  __device__ void recvCopySend(intptr_t outIx, int eltN) override { prims.recvCopySend(outIx, eltN); }
+  __device__ void recvReduceSend(intptr_t inpIx, int eltN) override { prims.recvReduceSend(inpIx, eltN); }
+  __device__ void recvReduceCopySend(intptr_t inpIx, intptr_t outIx, int eltN) override { prims.recvReduceCopySend(inpIx, outIx, eltN); }
+  __device__ void recvReduceCopy(intptr_t inpIx, intptr_t outIx, int eltN) override { prims.recvReduceCopy(inpIx, outIx, eltN); }
+  __device__ void localCopy(T* srcs, T* dsts, int eltN) override { prims.localCopy(srcs, dsts, eltN); }
+}
+
+template<typename T>
+__device__ void mscclRunInterpreterHelper(
+  PrimitivesWrapperInterface<T> const *prims, uint64_t* mscclBarrierNext, uint64_t* mscclBarriers,
+  T const *thisInput, T const *thisOutput, T const *thisScratch, const ssize_t chunkSize, const int minChunkSize) {
   const int tid = threadIdx.x;
   const int bid = blockIdx.x;
   const int nthreads = NCCL_MAX_NTHREADS;
-
-  // User pointers for primitives
-  T* thisInput = (T*)mscclShmem.work.sendBuff;
-  T* thisOutput = (T*)mscclShmem.work.recvBuff;
-  T* thisScratch = (T*)mscclShmem.work.scratchBuffer;
-
-  const ssize_t chunkSize = int(Proto::calcBytePerStep()/sizeof(T) * (Proto::Id == NCCL_PROTO_SIMPLE ? MSCCL_CHUNKSTEPS : 1));
-  int minChunkSize;
-  if (Proto::Id == NCCL_PROTO_LL)
-    minChunkSize = nthreads*(Proto::calcBytePerGrain()/sizeof(T));
-  if (Proto::Id == NCCL_PROTO_LL128) {
-    // We should not need the final /2 but it makes performance much, much smoother. Might be a bug somewhere.
-    minChunkSize = nthreads*(Proto::calcBytePerGrain()/sizeof(T))/2;
-  }
-
-  RedOp redFn(mscclShmem.work.redOpArg);
-  Primitives<T, RedOp, Fan, 1, Proto, 0> prims
-    (tid, nthreads, recvPeers, sendPeers, thisInput, thisOutput, mscclShmem.work.redOpArg);
 
   const ssize_t sizePerMscclChunk = mscclShmem.work.count / mscclShmem.work.nChunksPerLoop;
   uint32_t maxAllowedCount = mscclShmem.work.maxAllowedCount;
@@ -191,7 +210,7 @@ __device__ __forceinline__ void mscclRunInterpreterHelper(
 
       srcPointer = (t->srcBuffer == MSCCL_INPUT_BUFFER) ? thisInput : ((t->srcBuffer == MSCCL_OUTPUT_BUFFER) ? thisOutput : thisScratch);
       dstPointer = (t->dstBuffer == MSCCL_INPUT_BUFFER) ? thisInput : ((t->dstBuffer == MSCCL_OUTPUT_BUFFER) ? thisOutput : thisScratch);
-      prims.setDataPtrs(srcPointer, dstPointer);
+      prims->setDataPtrs(srcPointer, dstPointer);
       int count = t->count;
       for (int c = 0; c < count; c += maxAllowedCount) {
         srcOffset = gridOffset + (ssize_t) (t->srcOffset+c) * sizePerMscclChunk;
@@ -199,9 +218,9 @@ __device__ __forceinline__ void mscclRunInterpreterHelper(
         int thisCount = min(maxAllowedCount, count - c);
         int thisNelem = nelem * thisCount;
         if (t->type == MSCCL_SEND)
-          prims.sendWithBarrier(srcOffset, thisNelem); // LL.send is the only situation where there is no barrier at the end.
+          prims->sendWithBarrier(srcOffset, thisNelem); // LL.send is the only situation where there is no barrier at the end.
         else if (t->type == MSCCL_RECV)
-          prims.recv(dstOffset, thisNelem);
+          prims->recv(dstOffset, thisNelem);
         else if (t->type == MSCCL_REDUCE) {
           int numReductions = t->numReductions;
           if (thisNelem < nthreads){
@@ -261,19 +280,19 @@ __device__ __forceinline__ void mscclRunInterpreterHelper(
                 MSCCL_REDUCE_UNROLL_LOOP_B(numReductions);
                 break;
             }
-            prims.reduce(srcs, numReductions, &dst, 1, thisNelem);
+            prims->reduce(srcs, numReductions, &dst, 1, thisNelem);
           }
           if (c == 0) step += (numReductions-1); // only advance step once!
         } else if (t->type == MSCCL_RECV_COPY_SEND)
-          prims.recvCopySend(dstOffset, thisNelem);
+          prims->recvCopySend(dstOffset, thisNelem);
         else if (t->type == MSCCL_RECV_REDUCE_SEND)
-          prims.recvReduceSend(srcOffset, thisNelem);
+          prims->recvReduceSend(srcOffset, thisNelem);
         else if (t->type == MSCCL_RECV_REDUCE_COPY_SEND)
-          prims.recvReduceCopySend(srcOffset, dstOffset, thisNelem);
+          prims->recvReduceCopySend(srcOffset, dstOffset, thisNelem);
         else if (t->type == MSCCL_RECV_REDUCE_COPY)
-          prims.recvReduceCopy(srcOffset, dstOffset, thisNelem);
+          prims->recvReduceCopy(srcOffset, dstOffset, thisNelem);
         else if (t->type == MSCCL_LOCAL_COPY)
-          prims.localCopy(srcPointer+srcOffset, dstPointer+dstOffset, thisNelem);
+          prims->localCopy(srcPointer+srcOffset, dstPointer+dstOffset, thisNelem);
         else
           return;
       }
@@ -374,6 +393,22 @@ __device__ __forceinline__ void mscclRunInterpreter(
     sendPeers[i] = mscclShmem.mscclTB.sendPeers[i];
   }
 
+  // User pointers for primitives
+  T* thisInput = (T*)mscclShmem.work.sendBuff;
+  T* thisOutput = (T*)mscclShmem.work.recvBuff;
+  T* thisScratch = (T*)mscclShmem.work.scratchBuffer;
+
+  const ssize_t chunkSize = int(Proto::calcBytePerStep()/sizeof(T) * (Proto::Id == NCCL_PROTO_SIMPLE ? MSCCL_CHUNKSTEPS : 1));
+  int minChunkSize;
+  if (Proto::Id == NCCL_PROTO_LL)
+    minChunkSize = nthreads*(Proto::calcBytePerGrain()/sizeof(T));
+  if (Proto::Id == NCCL_PROTO_LL128) {
+    // We should not need the final /2 but it makes performance much, much smoother. Might be a bug somewhere.
+    minChunkSize = nthreads*(Proto::calcBytePerGrain()/sizeof(T))/2;
+  }
+
+  RedOp redFn(mscclShmem.work.redOpArg);
+
   const int nrecv = mscclShmem.mscclTB.nrecv;
   const int nsend = mscclShmem.mscclTB.nsend;
 
@@ -381,32 +416,48 @@ __device__ __forceinline__ void mscclRunInterpreter(
     switch (nsend) {
       case 0:
       case 1:
-        mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<1, 1>>(mscclBarrierNext, mscclBarriers, recvPeers, sendPeers);
+        PrimitivesWrapper<T, RedOp, FanAsymmetric<1, 1>, Proto> prims
+          (tid, nthreads, recvPeers, sendPeers, thisInput, thisOutput, mscclShmem.work.redOpArg);
+        mscclRunInterpreterHelper<T>(&prims, thisInput, thisOutput, thisScratch, chunkSize, minChunkSize);
         break;
       case 2:
-        mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<1, 2>>(mscclBarrierNext, mscclBarriers, recvPeers, sendPeers);
+        PrimitivesWrapper<T, RedOp, FanAsymmetric<1, 2>, Proto> prims
+          (tid, nthreads, recvPeers, sendPeers, thisInput, thisOutput, mscclShmem.work.redOpArg);
+        mscclRunInterpreterHelper<T>(&prims, thisInput, thisOutput, thisScratch, chunkSize, minChunkSize);
         break;
       case 3:
-        mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<1, 3>>(mscclBarrierNext, mscclBarriers, recvPeers, sendPeers);
+        PrimitivesWrapper<T, RedOp, FanAsymmetric<1, 3>, Proto> prims
+          (tid, nthreads, recvPeers, sendPeers, thisInput, thisOutput, mscclShmem.work.redOpArg);
+        mscclRunInterpreterHelper<T>(&prims, thisInput, thisOutput, thisScratch, chunkSize, minChunkSize);
         break;
       default:
-        mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<1, MSCCL_MAX_SEND_RECV_PEERS>>(mscclBarrierNext, mscclBarriers, recvPeers, sendPeers);
+        PrimitivesWrapper<T, RedOp, FanAsymmetric<1, MSCCL_MAX_SEND_RECV_PEERS>, Proto> prims
+          (tid, nthreads, recvPeers, sendPeers, thisInput, thisOutput, mscclShmem.work.redOpArg);
+        mscclRunInterpreterHelper<T>(&prims, thisInput, thisOutput, thisScratch, chunkSize, minChunkSize);
         break;
     }
   } else if (nsend <= 1) {
     switch (nrecv) {
       case 2:
-        mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<2, 1>>(mscclBarrierNext, mscclBarriers, recvPeers, sendPeers);
+        PrimitivesWrapper<T, RedOp, FanAsymmetric<2, 1>, Proto> prims
+          (tid, nthreads, recvPeers, sendPeers, thisInput, thisOutput, mscclShmem.work.redOpArg);
+        mscclRunInterpreterHelper<T>(&prims, thisInput, thisOutput, thisScratch, chunkSize, minChunkSize);
         break;
       case 3:
-        mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<3, 1>>(mscclBarrierNext, mscclBarriers, recvPeers, sendPeers);
+        PrimitivesWrapper<T, RedOp, FanAsymmetric<3, 1>, Proto> prims
+          (tid, nthreads, recvPeers, sendPeers, thisInput, thisOutput, mscclShmem.work.redOpArg);
+        mscclRunInterpreterHelper<T>(&prims, thisInput, thisOutput, thisScratch, chunkSize, minChunkSize);
         break;
       default:
-        mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<MSCCL_MAX_SEND_RECV_PEERS, 1>>(mscclBarrierNext, mscclBarriers, recvPeers, sendPeers);
+        PrimitivesWrapper<T, RedOp, FanAsymmetric<MSCCL_MAX_SEND_RECV_PEERS, 1>, Proto> prims
+          (tid, nthreads, recvPeers, sendPeers, thisInput, thisOutput, mscclShmem.work.redOpArg);
+        mscclRunInterpreterHelper<T>(&prims, thisInput, thisOutput, thisScratch, chunkSize, minChunkSize);
         break;
     }
   } else {
-    mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<MSCCL_MAX_SEND_RECV_PEERS, MSCCL_MAX_SEND_RECV_PEERS>>(mscclBarrierNext, mscclBarriers, recvPeers, sendPeers);
+    PrimitivesWrapper<T, RedOp, FanAsymmetric<MSCCL_MAX_SEND_RECV_PEERS, MSCCL_MAX_SEND_RECV_PEERS>, Proto> prims
+      (tid, nthreads, recvPeers, sendPeers, thisInput, thisOutput, mscclShmem.work.redOpArg);
+    mscclRunInterpreterHelper<T>(&prims, thisInput, thisOutput, thisScratch, chunkSize, minChunkSize);
   }
 }
 
