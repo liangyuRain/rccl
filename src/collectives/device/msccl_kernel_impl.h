@@ -411,41 +411,32 @@ __device__ void mscclRunInterpreter(
   const int nrecv = mscclShmem.mscclTB.nrecv;
   const int nsend = mscclShmem.mscclTB.nsend;
 
+  PrimitivesWrapperInterface<T>* prims = nullptr;
   if (nrecv <= 1) {
     if (nsend <= 1) {
-      PrimitivesWrapper<T, RedOp, FanAsymmetric<1, 1>, Proto> prims
+      prims = new PrimitivesWrapper<T, RedOp, FanAsymmetric<1, 1>, Proto>
         (tid, nthreads, recvPeers, sendPeers, thisInput, thisOutput, mscclShmem.work.redOpArg);
-      mscclRunInterpreterHelper<T, RedOp, isSimple>((PrimitivesWrapperInterface<T>*) &prims, 
-        mscclBarrierNext, mscclBarriers, thisInput, thisOutput, thisScratch, chunkSize, minChunkSize);
     } else if (nsend == 2) {
-      PrimitivesWrapper<T, RedOp, FanAsymmetric<1, 2>, Proto> prims
+      prims = new PrimitivesWrapper<T, RedOp, FanAsymmetric<1, 2>, Proto>
         (tid, nthreads, recvPeers, sendPeers, thisInput, thisOutput, mscclShmem.work.redOpArg);
-      mscclRunInterpreterHelper<T, RedOp, isSimple>((PrimitivesWrapperInterface<T>*) &prims, 
-        mscclBarrierNext, mscclBarriers, thisInput, thisOutput, thisScratch, chunkSize, minChunkSize);
     } else {
-      PrimitivesWrapper<T, RedOp, FanAsymmetric<1, MSCCL_MAX_SEND_RECV_PEERS>, Proto> prims
+      prims = new PrimitivesWrapper<T, RedOp, FanAsymmetric<1, MSCCL_MAX_SEND_RECV_PEERS>, Proto>
         (tid, nthreads, recvPeers, sendPeers, thisInput, thisOutput, mscclShmem.work.redOpArg);
-      mscclRunInterpreterHelper<T, RedOp, isSimple>((PrimitivesWrapperInterface<T>*) &prims, 
-        mscclBarrierNext, mscclBarriers, thisInput, thisOutput, thisScratch, chunkSize, minChunkSize);
     }
   } else if (nsend <= 1) {
     if (nrecv == 2) {
-      PrimitivesWrapper<T, RedOp, FanAsymmetric<2, 1>, Proto> prims
+      prims = new PrimitivesWrapper<T, RedOp, FanAsymmetric<2, 1>, Proto>
         (tid, nthreads, recvPeers, sendPeers, thisInput, thisOutput, mscclShmem.work.redOpArg);
-      mscclRunInterpreterHelper<T, RedOp, isSimple>((PrimitivesWrapperInterface<T>*) &prims, 
-        mscclBarrierNext, mscclBarriers, thisInput, thisOutput, thisScratch, chunkSize, minChunkSize);
     } else {
-      PrimitivesWrapper<T, RedOp, FanAsymmetric<MSCCL_MAX_SEND_RECV_PEERS, 1>, Proto> prims
+      prims = new PrimitivesWrapper<T, RedOp, FanAsymmetric<MSCCL_MAX_SEND_RECV_PEERS, 1>, Proto>
         (tid, nthreads, recvPeers, sendPeers, thisInput, thisOutput, mscclShmem.work.redOpArg);
-      mscclRunInterpreterHelper<T, RedOp, isSimple>((PrimitivesWrapperInterface<T>*) &prims, 
-        mscclBarrierNext, mscclBarriers, thisInput, thisOutput, thisScratch, chunkSize, minChunkSize);
     }
   } else {
-    PrimitivesWrapper<T, RedOp, FanAsymmetric<MSCCL_MAX_SEND_RECV_PEERS, MSCCL_MAX_SEND_RECV_PEERS>, Proto> prims
+    prims = new PrimitivesWrapper<T, RedOp, FanAsymmetric<MSCCL_MAX_SEND_RECV_PEERS, MSCCL_MAX_SEND_RECV_PEERS>, Proto>
       (tid, nthreads, recvPeers, sendPeers, thisInput, thisOutput, mscclShmem.work.redOpArg);
-    mscclRunInterpreterHelper<T, RedOp, isSimple>((PrimitivesWrapperInterface<T>*) &prims, 
-      mscclBarrierNext, mscclBarriers, thisInput, thisOutput, thisScratch, chunkSize, minChunkSize);
   }
+  mscclRunInterpreterHelper<T, RedOp, isSimple>(prims, mscclBarrierNext, mscclBarriers, 
+    thisInput, thisOutput, thisScratch, chunkSize, minChunkSize);
 }
 
 #define MSCCL_IMPL_KERNEL_ENTRY_FUNC_DEVREDOP_TYPE(devredop, type) \
