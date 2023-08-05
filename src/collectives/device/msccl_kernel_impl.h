@@ -8,8 +8,6 @@
 #ifndef MSSCLKERNELIMPL_H
 #define MSSCLKERNELIMPL_H
 
-#define HIP_ENABLE_PRINTF
-
 #include "devcomm.h"
 #include "primitives.h"
 #include "collectives.h"
