@@ -142,9 +142,9 @@ public:
 };
 
 template<typename T, typename RedOp, typename Fan, typename Proto>
-class PrimitivesWrapper : public PrimitiveWrapperInterface<T> {
+class PrimitivesWrapper : public PrimitivesWrapperInterface<T> {
 
-  const Primitives<T, RedOp, Fan, 1, Proto, 0> prims;
+  Primitives<T, RedOp, Fan, 1, Proto, 0> prims;
 
 public:
   __device__ PrimitivesWrapper(
