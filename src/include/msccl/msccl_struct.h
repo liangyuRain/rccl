@@ -19,7 +19,7 @@
 #define MSCCL_MAX_COUNT 72 // max concurrent number of msccl chunk transmission
 #define MSCCL_MAX_REDUCE_FUSION 16
 #define MSCCL_MAX_NUM_ALGOS 1024
-#define MSCCL_MAX_SEND_RECV_PEERS 5
+#define MSCCL_MAX_SEND_RECV_PEERS 6
 
 #define MSCCL_SLICESTEPS (NCCL_STEPS/4)
 #define MSCCL_CHUNKSTEPS (NCCL_STEPS/2)
