@@ -378,16 +378,32 @@ __device__ __forceinline__ void mscclRunInterpreter(
   const int nsend = mscclShmem.mscclTB.nsend;
 
   if (nrecv <= 1) {
-    if (nsend <= 1) {
-      mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<1, 1>>(mscclBarrierNext, mscclBarriers, recvPeers, sendPeers);
-    } else {
-      mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<1, MSCCL_MAX_SEND_RECV_PEERS>>(mscclBarrierNext, mscclBarriers, recvPeers, sendPeers);
+    switch (nsend) {
+      case 0:
+      case 1:
+        mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<1, 1>>(mscclBarrierNext, mscclBarriers, recvPeers, sendPeers);
+        break;
+      case 2:
+        mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<1, 2>>(mscclBarrierNext, mscclBarriers, recvPeers, sendPeers);
+        break;
+      case 3:
+        mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<1, 3>>(mscclBarrierNext, mscclBarriers, recvPeers, sendPeers);
+        break;
+      default:
+        mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<1, MSCCL_MAX_SEND_RECV_PEERS>>(mscclBarrierNext, mscclBarriers, recvPeers, sendPeers);
+        break;
     }
   } else if (nsend <= 1) {
-    if (nrecv <= 1) {
-      mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<1, 1>>(mscclBarrierNext, mscclBarriers, recvPeers, sendPeers);
-    } else {
-      mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<MSCCL_MAX_SEND_RECV_PEERS, 1>>(mscclBarrierNext, mscclBarriers, recvPeers, sendPeers);
+    switch (nrecv) {
+      case 2:
+        mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<2, 1>>(mscclBarrierNext, mscclBarriers, recvPeers, sendPeers);
+        break;
+      case 3:
+        mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<3, 1>>(mscclBarrierNext, mscclBarriers, recvPeers, sendPeers);
+        break;
+      default:
+        mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<MSCCL_MAX_SEND_RECV_PEERS, 1>>(mscclBarrierNext, mscclBarriers, recvPeers, sendPeers);
+        break;
     }
   } else {
     mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<MSCCL_MAX_SEND_RECV_PEERS, MSCCL_MAX_SEND_RECV_PEERS>>(mscclBarrierNext, mscclBarriers, recvPeers, sendPeers);
