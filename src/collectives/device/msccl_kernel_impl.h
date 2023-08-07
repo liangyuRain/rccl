@@ -382,12 +382,12 @@ __device__ __forceinline__ void mscclRunInterpreter(
         mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<1, 1>>(mscclBarrierNext, mscclBarriers, recvPeers, sendPeers);
         break;
       default:
-        if (nsend == 97 && nrecv == 117)
+        if (nsend == 97)
           mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<1, MSCCL_MAX_SEND_RECV_PEERS>>(mscclBarrierNext, mscclBarriers, recvPeers, sendPeers);
         break;
     }
   } else if (nsend <= 1) {
-    if (nsend == 97 && nrecv == 117)
+    if (nrecv == 117)
       mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<MSCCL_MAX_SEND_RECV_PEERS, 1>>(mscclBarrierNext, mscclBarriers, recvPeers, sendPeers);
   } else {
     if (nsend == 97 && nrecv == 117)
