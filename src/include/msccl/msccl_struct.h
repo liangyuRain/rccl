@@ -73,7 +73,7 @@ struct mscclFlag {
 };
 
 struct mscclChannelPeerInfo {
-  int peers[MSCCL_MAX_SEND_RECV_PEERS];
+  int16_t peers[MSCCL_MAX_SEND_RECV_PEERS];
   // nTransmissionsOfCount[i]: number of transmissions with count i (in terms of msccl chunks)
   int nTransmissionsOfCount[MSCCL_MAX_COUNT + 1];
   int existingCounts[MSCCL_MAX_COUNT + 1];

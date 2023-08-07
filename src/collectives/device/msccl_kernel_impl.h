@@ -212,6 +212,7 @@ __device__ __forceinline__ void mscclRunInterpreter(
   T* thisScratch = (T*)mscclShmem.work.scratchBuffer;
   int recvPeers[MSCCL_MAX_SEND_RECV_PEERS];
   int sendPeers[MSCCL_MAX_SEND_RECV_PEERS];
+  #pragma unroll
   for (int i = 0; i < MSCCL_MAX_SEND_RECV_PEERS; ++i) {
     recvPeers[i] = mscclShmem.mscclTB.recvPeers[i];
     sendPeers[i] = mscclShmem.mscclTB.sendPeers[i];
