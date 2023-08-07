@@ -78,6 +78,24 @@ static ncclResult_t mscclXmlGetAttrInt(struct mscclXmlNode* node, const char* at
   *value = strtol(str, NULL, 0);
   return ncclSuccess;
 }
+static ncclResult_t mscclXmlGetAttrInts(struct mscclXmlNode* node, const char* attrName, int* value, const int max_count) {
+  const char* str;
+  NCCLCHECK(mscclXmlGetAttrStr(node, attrName, &str));
+  char* list = strdup(str);
+  char* token = strtok(list, ",");
+  int i = 0;
+  while (token != NULL) {
+    if (i >= max_count) {
+      WARN("Attribute %s of node %s has more ints than expected %d", attrName, node->name, max_count);
+      return ncclInternalError;
+    }
+    value[i++] = atoi(token);
+    token = strtok(NULL, ",");
+  }
+  for (; i < max_count; ++i) value[i] = -1;
+  free(list);
+  return ncclSuccess;
+}
 
 static ncclResult_t mscclXmlGetAttrInt64(struct mscclXmlNode* node, const char* attrName, int64_t* value) {
   const char* str;

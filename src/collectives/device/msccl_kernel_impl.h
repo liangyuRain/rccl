@@ -125,93 +125,17 @@ for (int r = 0; r < numloops; r++) { \
   srcs[r] = srcPointer + srcOffset; \
 }
 
-template<typename T, typename RedOp, typename Proto>
-__device__ __forceinline__ void mscclRunInterpreter(
-  struct ncclDevComm* comm, struct mscclAlgo* algo, struct mscclWork work) {
+template<typename T, typename RedOp, typename Proto, typename Fan>
+__device__ __forceinline__ void mscclRunInterpreterHelper(
+  uint64_t* mscclBarrierNext, uint64_t* mscclBarriers, int const *recvPeers, int const *sendPeers) {
   const int tid = threadIdx.x;
   const int bid = blockIdx.x;
   const int nthreads = NCCL_MAX_NTHREADS;
-
-  // initialize barriers
-  if (tid == 0) {
-    for (auto i = 0; i < NCCL_MAX_GROUPS; i++) {
-      ncclShmem.groups[i].barrier = 0;
-      for (auto j = 0; j < NCCL_MAX_GROUPS; j++) ncclShmem.groups[i].barrier_next[j] = 0;
-    }
-  }
-  uint64_t* mscclBarrierNext = ncclShmem.groups[0].barrier_next;
-  uint64_t* mscclBarriers = &ncclShmem.groups[0].barrier;
-
-  // initialize mscclShmem.mscclTB
-  threadBlockCopy(
-    (uint64_t *)&mscclShmem.mscclTB, (uint64_t *)(algo->mscclTBs + bid),
-    sizeof(struct mscclThreadBlock) / sizeof(uint64_t), tid, nthreads);
-  __synclds(); // publish mscclShmem.mscclTB.channelId
-
-  // initialize ncclShmem and mscclShmem.work
-  int channelId = mscclShmem.mscclTB.channelId;
-  {
-    void *dst, *src;
-    int bytes = 0;
-    // Use first 3 warps to load comm, channel, and work into shmem
-    switch (tid/WARP_SIZE) {
-    case 0:
-      dst = &ncclShmem.comm;
-      src = comm;
-      bytes = sizeof(ncclDevComm);
-      static_assert(sizeof(ncclDevComm) <= sizeof(uint64_t) * WARP_SIZE, "ncclDevComm cannot be loaded by a single warp in one insn.");
-      break;
-    case 1:
-      // Get address of channel without incurring indirect load from ncclDevComm::channels
-      dst = &ncclShmem.channel;
-      src = &((ncclDevCommAndChannels*)comm)->channels[channelId];
-      bytes = sizeof(ncclDevChannel);
-      static_assert(sizeof(ncclDevChannel) <= sizeof(uint64_t) * WARP_SIZE, "ncclDevChannel cannot be loaded by a single warp in one insn.");
-      break;
-    case 2:
-      dst = &mscclShmem.work;
-      src = &work;
-      bytes = sizeof(mscclWork);
-      static_assert(sizeof(mscclWork) <= sizeof(uint64_t) * WARP_SIZE, "mscclWork cannot be loaded by a single warp in one insn.");
-      break;
-    case 3:
-      /* set abort flag to 0 */
-      if (tid == 3 * WARP_SIZE) ncclShmem.aborted = 0;
-      break;
-    default:
-      break;
-    }
-    copyToShmem8(tid%WARP_SIZE, dst, src, bytes);
-  }
-  __synclds(); // publish shmem
-
-  // Deference reduce args if required
-  if (tid == 0 && mscclShmem.work.hasReduce && mscclShmem.work.redOpArgIsPtr) {
-    switch (sizeof(T)) {
-      case 1:
-        mscclShmem.work.redOpArg = *reinterpret_cast<uint8_t*>(mscclShmem.work.redOpArg);
-        break;
-      case 2:
-        mscclShmem.work.redOpArg = *reinterpret_cast<uint16_t*>(mscclShmem.work.redOpArg);
-        break;
-      case 4:
-        mscclShmem.work.redOpArg = *reinterpret_cast<uint32_t*>(mscclShmem.work.redOpArg);
-        break;
-      case 8:
-        mscclShmem.work.redOpArg = *reinterpret_cast<uint64_t*>(mscclShmem.work.redOpArg);
-        break;
-      default:
-        break;
-    }
-  }
-  __synclds(); // publish shmem
 
   // User pointers for primitives
   T* thisInput = (T*)mscclShmem.work.sendBuff;
   T* thisOutput = (T*)mscclShmem.work.recvBuff;
   T* thisScratch = (T*)mscclShmem.work.scratchBuffer;
-  int recvPeer = mscclShmem.mscclTB.recvPeer;
-  int sendPeer = mscclShmem.mscclTB.sendPeer;
 
   const ssize_t chunkSize = int(Proto::calcBytePerStep()/sizeof(T) * (Proto::Id == NCCL_PROTO_SIMPLE ? MSCCL_CHUNKSTEPS : 1));
   int minChunkSize;
@@ -223,8 +147,8 @@ __device__ __forceinline__ void mscclRunInterpreter(
   }
 
   RedOp redFn(mscclShmem.work.redOpArg);
-  Primitives<T, RedOp, FanAsymmetric<1,1>, 1, Proto, 0> prims
-    (tid, nthreads, &recvPeer, &sendPeer, thisInput, thisOutput, mscclShmem.work.redOpArg);
+  Primitives<T, RedOp, Fan, 1, Proto, 0> prims
+    (tid, nthreads, recvPeers, sendPeers, thisInput, thisOutput, mscclShmem.work.redOpArg);
 
   const ssize_t sizePerMscclChunk = mscclShmem.work.count / mscclShmem.work.nChunksPerLoop;
   uint32_t maxAllowedCount = mscclShmem.work.maxAllowedCount;
@@ -356,6 +280,131 @@ __device__ __forceinline__ void mscclRunInterpreter(
       }
       step++;
     }
+  }
+}
+
+template<typename T, typename RedOp, typename Proto>
+__device__ __forceinline__ void mscclRunInterpreter(
+  struct ncclDevComm* comm, struct mscclAlgo* algo, struct mscclWork work) {
+  const int tid = threadIdx.x;
+  const int bid = blockIdx.x;
+  const int nthreads = NCCL_MAX_NTHREADS;
+
+  // initialize barriers
+  if (tid == 0) {
+    for (auto i = 0; i < NCCL_MAX_GROUPS; i++) {
+      ncclShmem.groups[i].barrier = 0;
+      for (auto j = 0; j < NCCL_MAX_GROUPS; j++) ncclShmem.groups[i].barrier_next[j] = 0;
+    }
+  }
+  uint64_t* mscclBarrierNext = ncclShmem.groups[0].barrier_next;
+  uint64_t* mscclBarriers = &ncclShmem.groups[0].barrier;
+
+  // initialize mscclShmem.mscclTB
+  threadBlockCopy(
+    (uint64_t *)&mscclShmem.mscclTB, (uint64_t *)(algo->mscclTBs + bid),
+    sizeof(struct mscclThreadBlock) / sizeof(uint64_t), tid, nthreads);
+  __synclds(); // publish mscclShmem.mscclTB.channelId
+
+  // initialize ncclShmem and mscclShmem.work
+  int channelId = mscclShmem.mscclTB.channelId;
+  {
+    void *dst, *src;
+    int bytes = 0;
+    // Use first 3 warps to load comm, channel, and work into shmem
+    switch (tid/WARP_SIZE) {
+    case 0:
+      dst = &ncclShmem.comm;
+      src = comm;
+      bytes = sizeof(ncclDevComm);
+      static_assert(sizeof(ncclDevComm) <= sizeof(uint64_t) * WARP_SIZE, "ncclDevComm cannot be loaded by a single warp in one insn.");
+      break;
+    case 1:
+      // Get address of channel without incurring indirect load from ncclDevComm::channels
+      dst = &ncclShmem.channel;
+      src = &((ncclDevCommAndChannels*)comm)->channels[channelId];
+      bytes = sizeof(ncclDevChannel);
+      static_assert(sizeof(ncclDevChannel) <= sizeof(uint64_t) * WARP_SIZE, "ncclDevChannel cannot be loaded by a single warp in one insn.");
+      break;
+    case 2:
+      dst = &mscclShmem.work;
+      src = &work;
+      bytes = sizeof(mscclWork);
+      static_assert(sizeof(mscclWork) <= sizeof(uint64_t) * WARP_SIZE, "mscclWork cannot be loaded by a single warp in one insn.");
+      break;
+    case 3:
+      /* set abort flag to 0 */
+      if (tid == 3 * WARP_SIZE) ncclShmem.aborted = 0;
+      break;
+    default:
+      break;
+    }
+    copyToShmem8(tid%WARP_SIZE, dst, src, bytes);
+  }
+  __synclds(); // publish shmem
+
+  // Deference reduce args if required
+  if (tid == 0 && mscclShmem.work.hasReduce && mscclShmem.work.redOpArgIsPtr) {
+    switch (sizeof(T)) {
+      case 1:
+        mscclShmem.work.redOpArg = *reinterpret_cast<uint8_t*>(mscclShmem.work.redOpArg);
+        break;
+      case 2:
+        mscclShmem.work.redOpArg = *reinterpret_cast<uint16_t*>(mscclShmem.work.redOpArg);
+        break;
+      case 4:
+        mscclShmem.work.redOpArg = *reinterpret_cast<uint32_t*>(mscclShmem.work.redOpArg);
+        break;
+      case 8:
+        mscclShmem.work.redOpArg = *reinterpret_cast<uint64_t*>(mscclShmem.work.redOpArg);
+        break;
+      default:
+        break;
+    }
+  }
+  __synclds(); // publish shmem
+
+  int recvPeers[MSCCL_MAX_SEND_RECV_PEERS];
+  int sendPeers[MSCCL_MAX_SEND_RECV_PEERS];
+  #pragma unroll
+  for (int i = 0; i < MSCCL_MAX_SEND_RECV_PEERS; ++i) {
+    recvPeers[i] = mscclShmem.mscclTB.recvPeers[i];
+    sendPeers[i] = mscclShmem.mscclTB.sendPeers[i];
+  }
+
+  const int nrecv = mscclShmem.mscclTB.nrecv;
+  const int nsend = mscclShmem.mscclTB.nsend;
+
+  if (nrecv <= 1) {
+    switch (nsend) {
+      case 0:
+      case 1:
+        mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<1, 1>>(mscclBarrierNext, mscclBarriers, recvPeers, sendPeers);
+        break;
+      case 2:
+        mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<1, 2>>(mscclBarrierNext, mscclBarriers, recvPeers, sendPeers);
+        break;
+      case 3:
+        mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<1, 3>>(mscclBarrierNext, mscclBarriers, recvPeers, sendPeers);
+        break;
+      default:
+        mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<1, MSCCL_MAX_SEND_RECV_PEERS>>(mscclBarrierNext, mscclBarriers, recvPeers, sendPeers);
+        break;
+    }
+  } else if (nsend <= 1) {
+    switch (nrecv) {
+      case 2:
+        mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<2, 1>>(mscclBarrierNext, mscclBarriers, recvPeers, sendPeers);
+        break;
+      case 3:
+        mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<3, 1>>(mscclBarrierNext, mscclBarriers, recvPeers, sendPeers);
+        break;
+      default:
+        mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<MSCCL_MAX_SEND_RECV_PEERS, 1>>(mscclBarrierNext, mscclBarriers, recvPeers, sendPeers);
+        break;
+    }
+  } else {
+    mscclRunInterpreterHelper<T, RedOp, Proto, FanAsymmetric<MSCCL_MAX_SEND_RECV_PEERS, MSCCL_MAX_SEND_RECV_PEERS>>(mscclBarrierNext, mscclBarriers, recvPeers, sendPeers);
   }
 }
 
