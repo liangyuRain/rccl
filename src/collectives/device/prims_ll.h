@@ -16,8 +16,8 @@ class Primitives<T, RedOp, Fan, Direct, ProtoLL, P2p>:
 
   // In the case of Fan::MaxRecv == 0, we need to force MaxRecv to 1 for this to compile
   // This is because of a recv buffer which is allocated to MaxRecv length in send-only cases
-  static constexpr int MaxRecv = Fan::MaxRecv > 1 ? Fan::MaxRecv : 1;
-  static constexpr int MaxSend = Fan::MaxSend;
+  static constexpr int MaxRecv = 1;
+  static constexpr int MaxSend = 1;
   static constexpr int Input=0, Output=1;
   RedOp redOp;
   const int tid;
@@ -468,6 +468,8 @@ private:
       postRecv();
     }
     if (SEND) {
+      for (int i=1; i < MaxSend && i < fan.nsend(); i++)
+        incSend(i, offset);
       incSend(0, offset);
     }
   }
