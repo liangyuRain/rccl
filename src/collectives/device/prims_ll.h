@@ -464,9 +464,7 @@ private:
 #endif
 
     if (RECV) {
-      incRecv(0);
-      const int nrecv = fan.nrecv();
-      for (int i=1; i < nrecv; i++) incRecv(i);
+      for (int i=0; i < MaxRecv; i++) incRecv(i);
       postRecv();
     }
     if (SEND) {
