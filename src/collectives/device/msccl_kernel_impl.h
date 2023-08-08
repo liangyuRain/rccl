@@ -210,8 +210,8 @@ __device__ __forceinline__ void mscclRunInterpreter(
   T* thisInput = (T*)mscclShmem.work.sendBuff;
   T* thisOutput = (T*)mscclShmem.work.recvBuff;
   T* thisScratch = (T*)mscclShmem.work.scratchBuffer;
-  int recvPeer = mscclShmem.mscclTB.recvPeer;
-  int sendPeer = mscclShmem.mscclTB.sendPeer;
+  int recvPeers[8] = {mscclShmem.mscclTB.recvPeer, -1, -1, -1, -1, -1, -1, -1};
+  int sendPeers[8] = {mscclShmem.mscclTB.sendPeer, -1, -1, -1, -1, -1, -1, -1};
 
   const ssize_t chunkSize = int(Proto::calcBytePerStep()/sizeof(T) * (Proto::Id == NCCL_PROTO_SIMPLE ? MSCCL_CHUNKSTEPS : 1));
   int minChunkSize;
@@ -223,8 +223,8 @@ __device__ __forceinline__ void mscclRunInterpreter(
   }
 
   RedOp redFn(mscclShmem.work.redOpArg);
-  Primitives<T, RedOp, FanAsymmetric<1,1>, 1, Proto, 0> prims
-    (tid, nthreads, &recvPeer, &sendPeer, thisInput, thisOutput, mscclShmem.work.redOpArg);
+  Primitives<T, RedOp, FanAsymmetric<8, 8>, 1, Proto, 0> prims
+    (tid, nthreads, recvPeers, sendPeers, thisInput, thisOutput, mscclShmem.work.redOpArg);
 
   const ssize_t sizePerMscclChunk = mscclShmem.work.count / mscclShmem.work.nChunksPerLoop;
   uint32_t maxAllowedCount = mscclShmem.work.maxAllowedCount;
