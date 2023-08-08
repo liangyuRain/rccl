@@ -182,15 +182,17 @@ private:
 
   template<int BeginIx>
   __device__ void readLLBeginAll(int offset, ncclLLFifoLine(&line)[MaxRecv]) {
-    const int nrecv = fan.nrecv();
-    for (int i=BeginIx; i < nrecv; i++) {
-      union ncclLLFifoLine* src = recvPtr(i) + offset;
+    #pragma unroll
+    for (int i=BeginIx; i < MaxRecv; i++) {
+      if (i < fan.nrecv()) {
+        union ncclLLFifoLine* src = recvPtr(i) + offset;
 #if defined(__HIP_PLATFORM_HCC__) || defined(__HCC__) || defined(__HIPCC__)
-      line[i].v[0] = __builtin_nontemporal_load(src->v);
-      line[i].v[1] = __builtin_nontemporal_load(src->v+1);
+        line[i].v[0] = __builtin_nontemporal_load(src->v);
+        line[i].v[1] = __builtin_nontemporal_load(src->v+1);
 #else
-      asm("ld.volatile.global.v4.u32 {%0,%1,%2,%3}, [%4];" : "=r"(line[i].data1), "=r"(line[i].flag1), "=r"(line[i].data2), "=r"(line[i].flag2) : "l"(&src->i4));
+        asm("ld.volatile.global.v4.u32 {%0,%1,%2,%3}, [%4];" : "=r"(line[i].data1), "=r"(line[i].flag1), "=r"(line[i].data2), "=r"(line[i].flag2) : "l"(&src->i4));
 #endif
+      }
     }
   }
   __device__ uint64_t readLLFinish(int offset, ncclLLFifoLine(&line)[MaxRecv], int i) {
