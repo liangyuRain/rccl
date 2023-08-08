@@ -436,8 +436,7 @@ private:
 
       // Send : inter-node, then intra-node, then local
       if (SEND) {
-        const int nsend = fan.nsend();
-        for (int i=1; i < nsend; i++)
+        for (int i=1; i < MaxSend && i < fan.nsend(); i++)
           storeLL(sendPtr(i)+offset, data, sendFlag(i));
         storeLL(sendPtr(0)+offset, data, sendFlag(0));
       }
