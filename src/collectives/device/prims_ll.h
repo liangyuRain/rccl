@@ -581,7 +581,7 @@ private:
       loadRecvConn(&channel->peers[recvPeers[i]]->recv[connIndexRecv], i);
     }
     for (int i = 0; i < MaxSend && sendPeers[i] >= 0 && i < nsend; ++i) {
-      loadSendConn(&channel->peers[sendPeers[i]]->recv[connIndexRecv], i);
+      loadSendConn(&channel->peers[sendPeers[i]]->send[connIndexRecv], i);
     }
     loadRecvSync();
     loadSendSync();
