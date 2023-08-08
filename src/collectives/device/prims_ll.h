@@ -25,7 +25,8 @@ class Primitives<T, RedOp, Fan, Direct, ProtoLL, P2p>:
   const int wid;
   const int group;
   const int stepLines;
-  Fan fan;
+  const int nrecv;
+  const int nsend;
   T *userBufs[2];
   struct ncclConnInfo* recvConn = NULL;
   volatile uint64_t* recvConnHeadPtr = NULL;
@@ -182,17 +183,14 @@ private:
 
   template<int BeginIx>
   __device__ void readLLBeginAll(int offset, ncclLLFifoLine(&line)[MaxRecv]) {
-    #pragma unroll
-    for (int i=BeginIx; i < MaxRecv; i++) {
-      if (i < fan.nrecv()) {
-        union ncclLLFifoLine* src = recvPtr(i) + offset;
+    for (int i=BeginIx; i < nrecv; i++) {
+      union ncclLLFifoLine* src = recvPtr(i) + offset;
 #if defined(__HIP_PLATFORM_HCC__) || defined(__HCC__) || defined(__HIPCC__)
-        line[i].v[0] = __builtin_nontemporal_load(src->v);
-        line[i].v[1] = __builtin_nontemporal_load(src->v+1);
+      line[i].v[0] = __builtin_nontemporal_load(src->v);
+      line[i].v[1] = __builtin_nontemporal_load(src->v+1);
 #else
-        asm("ld.volatile.global.v4.u32 {%0,%1,%2,%3}, [%4];" : "=r"(line[i].data1), "=r"(line[i].flag1), "=r"(line[i].data2), "=r"(line[i].flag2) : "l"(&src->i4));
+      asm("ld.volatile.global.v4.u32 {%0,%1,%2,%3}, [%4];" : "=r"(line[i].data1), "=r"(line[i].flag1), "=r"(line[i].data2), "=r"(line[i].flag2) : "l"(&src->i4));
 #endif
-      }
     }
   }
   __device__ uint64_t readLLFinish(int offset, ncclLLFifoLine(&line)[MaxRecv], int i) {
@@ -425,8 +423,7 @@ private:
       }
       if (RECV) {
         data = !SRC ? peerData : applyReduce(redOp, peerData, data);
-        #pragma unroll MaxRecv
-        for (int i=1; i < MaxRecv && i < fan.nrecv(); i++) {
+        for (int i=1; i < nrecv; i++) {
           peerData = readLLFinish(offset, line, i);
           data = applyReduce(redOp, peerData, data);
         }
@@ -436,7 +433,7 @@ private:
 
       // Send : inter-node, then intra-node, then local
       if (SEND) {
-        for (int i=1; i < MaxSend && i < fan.nsend(); i++)
+        for (int i=1; i < nsend; i++)
           storeLL(sendPtr(i)+offset, data, sendFlag(i));
         storeLL(sendPtr(0)+offset, data, sendFlag(0));
       }
@@ -464,11 +461,13 @@ private:
 #endif
 
     if (RECV) {
-      for (int i=0; i < MaxRecv; i++) incRecv(i);
+      // MaxRecv is at least 1
+      incRecv(0);
+      for (int i=1; i < nrecv; i++) incRecv(i);
       postRecv();
     }
     if (SEND) {
-      for (int i=1; i < MaxSend && i < fan.nsend(); i++)
+      for (int i=1; i < nsend; i++)
         incSend(i, offset);
       incSend(0, offset);
     }
@@ -543,7 +542,7 @@ private:
     if (wid == i) recvConn = conn;
   }
   __device__ __forceinline__ void loadRecvSync() {
-    if (tid >= nthreads-WARP_SIZE && wid < fan.nrecv()) {
+    if (tid >= nthreads-WARP_SIZE && wid < nrecv) {
       recvConnHeadPtr = recvConn->head;
       recvConnHead = recvConn->step;
     }
@@ -555,7 +554,7 @@ private:
     if (wid == i) sendConn = conn;
   }
   __device__ __forceinline__ void loadSendSync() {
-    if (tid < fan.nsend()) {
+    if (tid < nsend) {
       sendConnHeadPtr = sendConn->head;
       sendConnHeadCache = *sendConnHeadPtr;
       sendConnHead = sendConn->step;
@@ -567,26 +566,23 @@ private:
   __device__  Primitives(
       const int tid, const int nthreads, int const *recvPeers, int const *sendPeers,
       void const *inputBuf, void *outputBuf, uint64_t redOpArg, uint8_t group=0,
-      uint8_t connIndexRecv=0, uint8_t connIndexSend=0
+      uint8_t connIndexRecv=0, uint8_t connIndexSend=0, int nrecv=0, int nsend=0
     ):
     redOp(redOpArg),
     tid(tid), nthreads(nthreads), wid(tid%WARP_SIZE), group(group),
-    stepLines(ncclShmem.comm.buffSizes[NCCL_PROTO_LL]/NCCL_STEPS/sizeof(ncclLLFifoLine)) {
+    stepLines(ncclShmem.comm.buffSizes[NCCL_PROTO_LL]/NCCL_STEPS/sizeof(ncclLLFifoLine)),
+    nrecv(nrecv), nsend(nsend) {
     auto *channel = &ncclShmem.channel;
     barriers = &ncclShmem.groups[group].barrier;
     barrier_next = ncclShmem.groups[group].barrier_next;
     // If we are going to support oneshot collNet + LL, then we would need to add connector index here
-    int nrecv=0, nsend=0;
     // We compare with Fan::MaxRecv here because this->MaxRecv is always at least 1
-    while (nrecv < Fan::MaxRecv && recvPeers[nrecv] >= 0) {
-      loadRecvConn(&channel->peers[recvPeers[nrecv]]->recv[connIndexRecv], nrecv);
-      nrecv++;
+    for (int i = 0; i < Fan::MaxRecv && recvPeers[i] >= 0 && i < nrecv; ++i) {
+      loadRecvConn(&channel->peers[recvPeers[i]]->recv[connIndexRecv], i);
     }
-    while (nsend < MaxSend && sendPeers[nsend] >= 0) {
-      loadSendConn(&channel->peers[sendPeers[nsend]]->send[connIndexSend], nsend);
-      nsend++;
+    for (int i = 0; i < MaxSend && sendPeers[i] >= 0 && i < nsend; ++i) {
+      loadSendConn(&channel->peers[sendPeers[i]]->recv[connIndexRecv], i);
     }
-    this->fan = Fan(nrecv, nsend);
     loadRecvSync();
     loadSendSync();
     setDataPtrs(inputBuf, outputBuf);
@@ -594,9 +590,9 @@ private:
 
   __device__ ~Primitives() {
     // Save steps for the next operation
-    if (tid >= nthreads-WARP_SIZE && wid < fan.nrecv())
+    if (tid >= nthreads-WARP_SIZE && wid < nrecv)
       recvConn->step = recvConnHead;
-    if (tid < fan.nsend())
+    if (tid < nsend)
       sendConn->step = sendConnHead;
     // Ensure all steps written back
     barrier();

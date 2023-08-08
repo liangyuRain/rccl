@@ -8,6 +8,8 @@
 #ifndef MSSCLKERNELIMPL_H
 #define MSSCLKERNELIMPL_H
 
+#define HIP_ENABLE_PRINTF
+
 #include "devcomm.h"
 #include "primitives.h"
 #include "collectives.h"
@@ -212,10 +214,28 @@ __device__ __forceinline__ void mscclRunInterpreter(
   T* thisScratch = (T*)mscclShmem.work.scratchBuffer;
   int recvPeers[MSCCL_MAX_SEND_RECV_PEERS];
   int sendPeers[MSCCL_MAX_SEND_RECV_PEERS];
+  int nrecv = 0, nsend = 0;
   #pragma unroll
   for (int i = 0; i < MSCCL_MAX_SEND_RECV_PEERS; ++i) {
     recvPeers[i] = mscclShmem.mscclTB.recvPeers[i];
     sendPeers[i] = mscclShmem.mscclTB.sendPeers[i];
+    if (recvPeers[i] >= 0) ++nrecv;
+    if (sendPeers[i] >= 0) ++nsend;
+  }
+
+  if (nsend > 1 || nrecv > 1) {
+    printf(
+      "nrecv=%d, nsend=%d, nSteps=%d, channelId=%d, tid=%d, bid=%d"
+      "recvPeers=[%d,%d,%d,%d,%d,%d,%d,%d], "
+      "sendPeers=[%d,%d,%d,%d,%d,%d,%d,%d]\n",
+      (int) nrecv, (int) nsend, (int) mscclShmem.mscclTB.nSteps, (int) mscclShmem.mscclTB.channelId, (int) tid, (int) bid,
+      (int) mscclShmem.mscclTB.recvPeers[0], (int) mscclShmem.mscclTB.recvPeers[1], (int) mscclShmem.mscclTB.recvPeers[2],
+      (int) mscclShmem.mscclTB.recvPeers[3], (int) mscclShmem.mscclTB.recvPeers[4], (int) mscclShmem.mscclTB.recvPeers[5],
+      (int) mscclShmem.mscclTB.recvPeers[6], (int) mscclShmem.mscclTB.recvPeers[7],
+      (int) mscclShmem.mscclTB.sendPeers[0], (int) mscclShmem.mscclTB.sendPeers[1], (int) mscclShmem.mscclTB.sendPeers[2],
+      (int) mscclShmem.mscclTB.sendPeers[3], (int) mscclShmem.mscclTB.sendPeers[4], (int) mscclShmem.mscclTB.sendPeers[5],
+      (int) mscclShmem.mscclTB.sendPeers[6], (int) mscclShmem.mscclTB.sendPeers[7]
+    );
   }
 
   const ssize_t chunkSize = int(Proto::calcBytePerStep()/sizeof(T) * (Proto::Id == NCCL_PROTO_SIMPLE ? MSCCL_CHUNKSTEPS : 1));
@@ -228,8 +248,8 @@ __device__ __forceinline__ void mscclRunInterpreter(
   }
 
   RedOp redFn(mscclShmem.work.redOpArg);
-  Primitives<T, RedOp, FanAsymmetric<1, 1>, 1, Proto, 0> prims
-    (tid, nthreads, recvPeers, sendPeers, thisInput, thisOutput, mscclShmem.work.redOpArg);
+  Primitives<T, RedOp, FanAsymmetric<MSCCL_MAX_SEND_RECV_PEERS, MSCCL_MAX_SEND_RECV_PEERS>, 1, Proto, 0> prims
+    (tid, nthreads, recvPeers, sendPeers, thisInput, thisOutput, mscclShmem.work.redOpArg, 0, 0, 0, nrecv, nsend);
 
   const ssize_t sizePerMscclChunk = mscclShmem.work.count / mscclShmem.work.nChunksPerLoop;
   uint32_t maxAllowedCount = mscclShmem.work.maxAllowedCount;
