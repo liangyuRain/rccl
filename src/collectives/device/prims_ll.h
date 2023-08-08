@@ -425,8 +425,8 @@ private:
       }
       if (RECV) {
         data = !SRC ? peerData : applyReduce(redOp, peerData, data);
-        const int nrecv = fan.nrecv();
-        for (int i=1; i < nrecv; i++) {
+        #pragma unroll MaxRecv
+        for (int i=1; i < MaxRecv && i < fan.nrecv(); i++) {
           peerData = readLLFinish(offset, line, i);
           data = applyReduce(redOp, peerData, data);
         }
