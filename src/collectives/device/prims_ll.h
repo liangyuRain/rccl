@@ -16,8 +16,8 @@ class Primitives<T, RedOp, Fan, Direct, ProtoLL, P2p>:
 
   // In the case of Fan::MaxRecv == 0, we need to force MaxRecv to 1 for this to compile
   // This is because of a recv buffer which is allocated to MaxRecv length in send-only cases
-  static constexpr int MaxRecv = 1;
-  static constexpr int MaxSend = 1;
+  static constexpr int MaxRecv = Fan::MaxRecv > 1 ? Fan::MaxRecv : 1;
+  static constexpr int MaxSend = Fan::MaxSend;
   static constexpr int Input=0, Output=1;
   RedOp redOp;
   const int tid;
@@ -183,7 +183,7 @@ private:
   template<int BeginIx>
   __device__ void readLLBeginAll(int offset, ncclLLFifoLine(&line)[MaxRecv]) {
     #pragma unroll
-    for (int i=BeginIx; i < MaxRecv; i++) {
+    for (int i=BeginIx; i < 1; i++) {
       if (i < fan.nrecv()) {
         union ncclLLFifoLine* src = recvPtr(i) + offset;
 #if defined(__HIP_PLATFORM_HCC__) || defined(__HCC__) || defined(__HIPCC__)
@@ -425,8 +425,8 @@ private:
       }
       if (RECV) {
         data = !SRC ? peerData : applyReduce(redOp, peerData, data);
-        #pragma unroll MaxRecv
-        for (int i=1; i < MaxRecv && i < fan.nrecv(); i++) {
+        #pragma unroll 1
+        for (int i=1; i < 1 && i < fan.nrecv(); i++) {
           peerData = readLLFinish(offset, line, i);
           data = applyReduce(redOp, peerData, data);
         }
@@ -436,7 +436,7 @@ private:
 
       // Send : inter-node, then intra-node, then local
       if (SEND) {
-        for (int i=1; i < MaxSend && i < fan.nsend(); i++)
+        for (int i=1; i < 1 && i < fan.nsend(); i++)
           storeLL(sendPtr(i)+offset, data, sendFlag(i));
         storeLL(sendPtr(0)+offset, data, sendFlag(0));
       }
@@ -464,11 +464,11 @@ private:
 #endif
 
     if (RECV) {
-      for (int i=0; i < MaxRecv; i++) incRecv(i);
+      for (int i=0; i < 1; i++) incRecv(i);
       postRecv();
     }
     if (SEND) {
-      for (int i=1; i < MaxSend && i < fan.nsend(); i++)
+      for (int i=1; i < 1 && i < fan.nsend(); i++)
         incSend(i, offset);
       incSend(0, offset);
     }
@@ -578,11 +578,11 @@ private:
     // If we are going to support oneshot collNet + LL, then we would need to add connector index here
     int nrecv=0, nsend=0;
     // We compare with Fan::MaxRecv here because this->MaxRecv is always at least 1
-    while (nrecv < Fan::MaxRecv && recvPeers[nrecv] >= 0) {
+    while (nrecv < 1 && recvPeers[nrecv] >= 0) {
       loadRecvConn(&channel->peers[recvPeers[nrecv]]->recv[connIndexRecv], nrecv);
       nrecv++;
     }
-    while (nsend < MaxSend && sendPeers[nsend] >= 0) {
+    while (nsend < 1 && sendPeers[nsend] >= 0) {
       loadSendConn(&channel->peers[sendPeers[nsend]]->send[connIndexSend], nsend);
       nsend++;
     }
