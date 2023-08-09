@@ -297,6 +297,12 @@ __device__ __forceinline__ void mscclRunInterpreter(
         dstOffset = gridOffset + (ssize_t) (t->dstOffset+c) * sizePerMscclChunk;
         int thisCount = min(maxAllowedCount, count - c);
         int thisNelem = nelem * thisCount;
+#if defined(ENABLE_NPKIT) && defined(ENABLE_NPKIT_EVENT_MSCCL_STEP_ENTRY)
+        if (tid == 0) {
+          NpKit::CollectGpuEvent(NPKIT_EVENT_MSCCL_STEP_ENTRY, thisNelem*sizeof(T), 0, NPKIT_GET_GPU_TIMESTAMP(),
+              ncclShmem.comm.npKitEventCollectContexts + npKitCtxIdx);
+        }
+#endif
         if (t->type == MSCCL_SEND)
           prims.sendWithBarrier(srcOffset, thisNelem); // LL.send is the only situation where there is no barrier at the end.
         else if (t->type == MSCCL_RECV)
@@ -388,8 +394,21 @@ __device__ __forceinline__ void mscclRunInterpreter(
           prims.recvReduceCopy(srcOffset, dstOffset, thisNelem);
         else if (t->type == MSCCL_LOCAL_COPY)
           prims.localCopy(srcPointer+srcOffset, dstPointer+dstOffset, thisNelem);
-        else
+        else {
+#if defined(ENABLE_NPKIT) && defined(ENABLE_NPKIT_EVENT_MSCCL_STEP_EXIT)
+          if (tid == 0) {
+            NpKit::CollectGpuEvent(NPKIT_EVENT_MSCCL_STEP_EXIT, thisNelem*sizeof(T), 0, NPKIT_GET_GPU_TIMESTAMP(),
+                ncclShmem.comm.npKitEventCollectContexts + npKitCtxIdx);
+          }
+#endif
           return;
+        }
+#if defined(ENABLE_NPKIT) && defined(ENABLE_NPKIT_EVENT_MSCCL_STEP_EXIT)
+        if (tid == 0) {
+          NpKit::CollectGpuEvent(NPKIT_EVENT_MSCCL_STEP_EXIT, thisNelem*sizeof(T), 0, NPKIT_GET_GPU_TIMESTAMP(),
+              ncclShmem.comm.npKitEventCollectContexts + npKitCtxIdx);
+        }
+#endif
       }
       if (t->hasDependence && tid == nthreads-1){
         mscclFlags[bid].flag = (uint64_t) COMPUTE_FLAG(workIndex, iter, step);
