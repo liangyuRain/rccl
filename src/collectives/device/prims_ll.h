@@ -468,8 +468,10 @@ private:
       postRecv();
     }
     if (SEND) {
-      for (int i=1; i < MaxSend && i < fan.nsend(); i++)
-        incSend(i, offset);
+      if (fan.nsend() > 1) {
+        for (int i=1; i < MaxSend && i < fan.nsend(); i++)
+          incSend(i, offset);
+      }
       incSend(0, offset);
     }
   }
