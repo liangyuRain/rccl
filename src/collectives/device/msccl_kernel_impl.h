@@ -229,8 +229,12 @@ __device__ __forceinline__ void mscclRunInterpreter(
   T* thisInput = (T*)mscclShmem.work.sendBuff;
   T* thisOutput = (T*)mscclShmem.work.recvBuff;
   T* thisScratch = (T*)mscclShmem.work.scratchBuffer;
-  int recvPeer = mscclShmem.mscclTB.recvPeer;
-  int sendPeer = mscclShmem.mscclTB.sendPeer;
+  int recvPeers[MSCCL_MAX_SEND_RECV_PEERS];
+  int sendPeers[MSCCL_MAX_SEND_RECV_PEERS];
+  for (int i = 0; i < MSCCL_MAX_SEND_RECV_PEERS; ++i) {
+    recvPeers[i] = mscclShmem.mscclTB.recvPeers[i];
+    sendPeers[i] = mscclShmem.mscclTB.sendPeers[i];
+  }
 
   const ssize_t chunkSize = int(Proto::calcBytePerStep()/sizeof(T) * (Proto::Id == NCCL_PROTO_SIMPLE ? MSCCL_CHUNKSTEPS : 1));
   int minChunkSize;
@@ -242,8 +246,8 @@ __device__ __forceinline__ void mscclRunInterpreter(
   }
 
   RedOp redFn(mscclShmem.work.redOpArg);
-  Primitives<T, RedOp, FanAsymmetric<1,1>, 1, Proto, 0> prims
-    (tid, nthreads, &recvPeer, &sendPeer, thisInput, thisOutput, mscclShmem.work.redOpArg);
+  Primitives<T, RedOp, FanAsymmetric<MSCCL_MAX_SEND_RECV_PEERS, MSCCL_MAX_SEND_RECV_PEERS>, 1, Proto, 0> prims
+    (tid, nthreads, recvPeers, sendPeers, thisInput, thisOutput, mscclShmem.work.redOpArg);
 
 #if defined(ENABLE_NPKIT)
   if (tid == 0) {

@@ -73,17 +73,21 @@ ncclResult_t mscclSetupConnections(struct mscclAlgo* hostAlgo, ncclComm_t comm) 
   for (int i = 0; i < hostAlgo->nChannels; i++) {
     struct mscclChannelInfo* mCh = hostAlgo->mscclChannels + i;
 
-    int sendPeers[MSCCL_MAX_NUM_THREAD_BLOCKS_PER_CHANNEL];
+    int sendPeers[MSCCL_MAX_NUM_THREAD_BLOCKS_PER_CHANNEL * MSCCL_MAX_SEND_RECV_PEERS];
     for (int p = 0; p < mCh->nSendPeers; p++) {
-      sendPeers[p] = mCh->sendPeerInfo[p].peer;
+      for (int p2 = 0; p2 < MSCCL_MAX_SEND_RECV_PEERS; p2++) {
+        sendPeers[p * MSCCL_MAX_SEND_RECV_PEERS + p2] = mCh->sendPeerInfo[p].peers[p2];
+      }
     }
 
-    int recvPeers[MSCCL_MAX_NUM_THREAD_BLOCKS_PER_CHANNEL];
+    int recvPeers[MSCCL_MAX_NUM_THREAD_BLOCKS_PER_CHANNEL * MSCCL_MAX_SEND_RECV_PEERS];
     for (int p = 0; p < mCh->nRecvPeers; p++) {
-      recvPeers[p] = mCh->recvPeerInfo[p].peer;
+      for (int p2 = 0; p2 < MSCCL_MAX_SEND_RECV_PEERS; p2++) {
+        recvPeers[p * MSCCL_MAX_SEND_RECV_PEERS + p2] = mCh->recvPeerInfo[p].peers[p2];
+      }
     }
 
-    NCCLCHECK(ncclTransportP2pConnect(comm, i, mCh->nRecvPeers, recvPeers, mCh->nSendPeers, sendPeers, 0 /*connIndex*/));
+    NCCLCHECK(ncclTransportP2pConnect(comm, i, mCh->nRecvPeers * MSCCL_MAX_SEND_RECV_PEERS, recvPeers, mCh->nSendPeers * MSCCL_MAX_SEND_RECV_PEERS, sendPeers, 0 /*connIndex*/));
   }
 
   // Connect MSCCL connections
@@ -125,7 +129,9 @@ ncclResult_t mscclSetupProxy(struct mscclAlgo* hostAlgo, ncclComm_t comm) {
       }
       proxyOp.nsteps = nLoopsChunkSteps * nRecvs;
       if (proxyOp.nsteps > 0) {
-        NCCLCHECK(mscclSaveProxy(comm, ncclChannel, proxyRecv, recvPeer->peer, &proxyOp, 0));
+        for (int peer : recvPeer->peers) {
+          NCCLCHECK(mscclSaveProxy(comm, ncclChannel, proxyRecv, peer, &proxyOp, 0));
+        }
       }
     }
     for (int i=0; i<mscclChannel->nSendPeers; i++){
@@ -138,7 +144,9 @@ ncclResult_t mscclSetupProxy(struct mscclAlgo* hostAlgo, ncclComm_t comm) {
       }
       proxyOp.nsteps = nLoopsChunkSteps * nSends;
       if (proxyOp.nsteps > 0) {
-        NCCLCHECK(mscclSaveProxy(comm, ncclChannel, proxySend, sendPeer->peer, &proxyOp, 0));
+        for (int peer : sendPeer->peers) {
+          NCCLCHECK(mscclSaveProxy(comm, ncclChannel, proxySend, peer, &proxyOp, 0));
+        }
       }
     }
   }
