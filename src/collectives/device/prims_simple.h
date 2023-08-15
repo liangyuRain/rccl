@@ -421,7 +421,7 @@ private:
     int dataSize = max(DIVUP(peerElem, 16*slicesPerChunk)*16, sliceSize/32);  // per-peer slice size
 
     #pragma unroll 1
-    for (int slice=0; slice<SlicePerChunk; ++slice) {
+    for (int slice=0; slice<slicesPerChunk; ++slice) {
       int realSize = max(0, min(dataSize, peerElem-offset));
       bool fenceNeeded = false;
       if (tid < nworkers) {
@@ -565,7 +565,7 @@ private:
       int stepsPerSlice, int slicesPerChunk, uint8_t group=0,
       uint8_t connIndexRecv = 0, uint8_t connIndexSend = 0, struct ncclWorkElem* e = nullptr
     ):
-    tid(tid), nthreads(nthreads), tidInBlock(threadIdx.x)
+    tid(tid), nthreads(nthreads), tidInBlock(threadIdx.x),
     stepsPerSlice(stepsPerSlice), slicesPerChunk(slicesPerChunk), group(group),
     stepSize(ncclShmem.comm.buffSizes[NCCL_PROTO_SIMPLE]/NCCL_STEPS/sizeof(T)) {
 
