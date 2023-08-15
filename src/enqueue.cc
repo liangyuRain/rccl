@@ -1288,11 +1288,11 @@ static ncclResult_t getLoopInfo(struct ncclInfo* info) {
 }
 
 RCCL_PARAM(IntraNetThreshold, "INTRANET_THRESHOLD", 8388608);
-RCCL_PARAM(LLChunkSteps, "LL_CHUNKSTEPS", (NCCL_STEPS/8));
-RCCL_PARAM(LL128ChunkSteps, "LL128_CHUNKSTEPS", (NCCL_STEPS/8));
-RCCL_PARAM(PipelineChunkSteps, "PIPELINE_CHUNKSTEPS", (NCCL_STEPS/8));
-RCCL_PARAM(RingChunkSteps, "RING_CHUNKSTEPS", (NCCL_STEPS/2));
-RCCL_PARAM(RingSliceSteps, "RING_SLICESTEPS", (NCCL_STEPS/4));
+NCCL_PARAM(LLChunkSteps, "LL_CHUNKSTEPS", (NCCL_STEPS/8));
+NCCL_PARAM(LL128ChunkSteps, "LL128_CHUNKSTEPS", (NCCL_STEPS/8));
+NCCL_PARAM(PipelineChunkSteps, "PIPELINE_CHUNKSTEPS", (NCCL_STEPS/8));
+NCCL_PARAM(RingChunkSteps, "RING_CHUNKSTEPS", (NCCL_STEPS/2));
+NCCL_PARAM(RingSliceSteps, "RING_SLICESTEPS", (NCCL_STEPS/4));
 
 static ncclResult_t getStepInfo(struct ncclInfo* info) {
   if (info->protocol == NCCL_PROTO_LL) {

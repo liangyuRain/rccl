@@ -33,7 +33,7 @@ namespace {
     const ssize_t prims_size = int(Proto::calcBytePerStep()/sizeof(T) * (Proto::Id == NCCL_PROTO_SIMPLE ? ALLTOALL_PIVOT_CHUNKSTEPS : 1));
 
     Primitives<T, RedOp, FanSymmetric<1>, 0, Proto, 0> prims
-      (tid, nthreads, &ring->prev, &ring->next, args->sendbuff, args->recvbuff, /*redOpArg(ignored)=*/0);
+      (tid, nthreads, &ring->prev, &ring->next, args->sendbuff, args->recvbuff, /*redOpArg(ignored)=*/0, args->stepsPerSlice, args->slicesPerChunk);
 
     for (int num_hops = 0; num_hops <= nranks / 2; num_hops++) {
       const int src_rank = ring->userRanks[(nranks - num_hops) % nranks];
