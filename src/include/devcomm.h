@@ -37,7 +37,7 @@ extern const char* ncclAlgoStr[NCCL_NUM_ALGORITHMS];
 extern const char* ncclProtoStr[NCCL_NUM_PROTOCOLS];
 
 #define NCCL_MAX_OPS 2048
-#define NCCL_STEPS 8
+#define NCCL_STEPS 32
 
 union ncclLLFifoLine {
   /* Flags have to be *after* data, because otherwise, an incomplete receive
@@ -59,13 +59,13 @@ union ncclLLFifoLine {
 #define NCCL_MAX_NTHREADS 256
 #define NCCL_SIMPLE_MAX_NTHREADS NCCL_MAX_NTHREADS
 #define NCCL_LL_MAX_NTHREADS NCCL_MAX_NTHREADS
-#define NCCL_LL_LINES_PER_THREAD 8
+#define NCCL_LL_LINES_PER_THREAD 64 // Must be a multiple of NCCL_STEPS
 #ifdef TEST_LL_CLEANUP
 #define NCCL_LL_CLEAN_MASK 0x078 // Set to 0x100 to disable cleanup
 #define NCCL_LL_FLAG_MAX   0x100
 #define NCCL_LL_FLAG(a) ((uint32_t)((a) % NCCL_LL_FLAG_MAX))
 #else
-#define NCCL_LL_CLEAN_MASK 0x7ffffff8
+#define NCCL_LL_CLEAN_MASK 0x7fffffe0
 #define NCCL_LL_FLAG(a) ((uint32_t)(a))
 #endif
 // Make sure the clean mask will last for at least NCCL_NSTEPS
@@ -76,7 +76,7 @@ static_assert(NCCL_LL_CLEAN_MASK % NCCL_STEPS == 0, "Invalid NCCL_LL_CLEAN_MASK 
 #define NCCL_LL128_DATAELEMS (NCCL_LL128_LINEELEMS-1)
 
 #define NCCL_LL128_MAX_NTHREADS 256
-#define NCCL_LL128_ELEMS_PER_THREAD 28
+#define NCCL_LL128_ELEMS_PER_THREAD 224// Must be a multiple of NCCL_STEPS
 
 #define NCCL_LL128_SHMEM_ELEMS_PER_THREAD 4
 #define NCCL_LL128_SHMEM_SIZE (NCCL_LL128_SHMEM_ELEMS_PER_THREAD*NCCL_LL128_MAX_NTHREADS)
@@ -242,6 +242,8 @@ struct ncclWorkElem {
     // Instead, it needs the number of bidirectional rings.
     size_t pivotA2ANumBiRings;
   };
+  uint8_t stepsPerSlice;
+  uint8_t slicesPerChunk;
   uint64_t redOpArg;
   uint64_t opCount;
 };
@@ -265,6 +267,7 @@ struct ncclWorkElemP2p {
     };
   };
   uint16_t opCount;
+  uint8_t stepsPerChunkPow2:3;
   // Important not to use any fields with greater than 4-byte alignment since
   // we need sizeof(ncclWorkElemP2p)==28, but that would be padded up to 32 if
   // there were 8-byte fields.

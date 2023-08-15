@@ -25,6 +25,7 @@ class Primitives<T, RedOp, Fan, Direct, ProtoLL, P2p>:
   const int wid;
   const int group;
   const int stepLines;
+  const int stepsPerChunk;
   Fan fan;
   T *userBufs[2];
   struct ncclConnInfo* recvConn = NULL;
@@ -62,8 +63,8 @@ private:
   inline __device__ int sendOffset(int i) { return (sendStep[i]%NCCL_STEPS)*stepLines; }
   inline __device__ union ncclLLFifoLine* recvPtr(int i) { return recvBuff[i]+recvOffset(i); }
   inline __device__ union ncclLLFifoLine* sendPtr(int i) { return sendBuff[i]+sendOffset(i); }
-  inline __device__ uint32_t recvFlag(int i) { return NCCL_LL_FLAG(recvStep[i]+1); }
-  inline __device__ uint32_t sendFlag(int i) { return NCCL_LL_FLAG(sendStep[i]+1); }
+  inline __device__ uint32_t recvFlag(int i) { return NCCL_LL_FLAG(recvStep[i]+stepsPerChunk); }
+  inline __device__ uint32_t sendFlag(int i) { return NCCL_LL_FLAG(sendStep[i]+stepsPerChunk); }
 
   uint64_t* barriers;
   uint64_t* barrier_next;
@@ -97,17 +98,17 @@ private:
 #endif
     if (sendConnHeadPtr) {
       int spins = 0;
-      while (sendConnHeadCache + NCCL_STEPS < sendConnHead + 1) {
+      while (sendConnHeadCache + NCCL_STEPS < sendConnHead + stepsPerChunk) {
         __builtin_amdgcn_s_sleep(1);
         sendConnHeadCache = atomicAdd((unsigned long long *)sendConnHeadPtr, 0);
         if (checkAbort(spins, 1)) break;
       }
       __asm__ __volatile__("s_wakeup");
       if (sendConnFifoPtr) {
-        int size = ((sendConnHead & NCCL_LL_CLEAN_MASK) == NCCL_LL_CLEAN_MASK) ? stepLines*sizeof(union ncclLLFifoLine) : nbytes;
+        int size = ((sendConnHead & NCCL_LL_CLEAN_MASK) == NCCL_LL_CLEAN_MASK) ? stepsPerChunk*stepLines*sizeof(union ncclLLFifoLine) : nbytes;
         __atomic_store_n(sendConnFifoPtr+sendConnHead%NCCL_STEPS, (size), __ATOMIC_SEQ_CST);
       }
-      sendConnHead += 1;
+      sendConnHead += stepsPerChunk;
     }
     barrier();
 #if defined(ENABLE_NPKIT) && defined(ENABLE_NPKIT_EVENT_PRIM_LL_WAIT_SEND_EXIT)
@@ -119,20 +120,20 @@ private:
   }
 
   inline __device__ void incRecv(int i) {
-    recvStep[i] += 1;
+    recvStep[i] += stepsPerChunk;
   }
   inline __device__ void postRecv() {
     barrier();
-    if (recvConnHeadPtr) STORE(recvConnHeadPtr, recvConnHead += 1);
+    if (recvConnHeadPtr) STORE(recvConnHeadPtr, recvConnHead += stepsPerChunk);
   }
 
   inline __device__ void incSend(int i, int offset) {
     // LL Cleanup : write all flags in the slice to make sure we don't have
     // data corruption when flag loops over.
     if ((sendStep[i] & NCCL_LL_CLEAN_MASK) == NCCL_LL_CLEAN_MASK) {
-      for (int o = offset; o<stepLines; o+=nthreads) storeLL(sendPtr(i)+o, 0, sendFlag(i));
+      for (int o = offset; o<stepLines*stepsPerChunk; o+=nthreads) storeLL(sendPtr(i)+o, 0, sendFlag(i));
     }
-    sendStep[i]++;
+    sendStep[i] += stepsPerChunk;
   }
 
   __device__ uint64_t readLL(int offset, int i) {
@@ -555,6 +556,7 @@ private:
   __device__ __forceinline__ void loadRecvConn(struct ncclConnInfo* conn, int i) {
     recvBuff[i] = (union ncclLLFifoLine*)conn->buffs[NCCL_PROTO_LL];
     recvStep[i] = conn->step;
+    recvStep[i] = roundUp(recvStep[i], stepsPerChunk);
     if (wid == i) recvConn = conn;
   }
   __device__ __forceinline__ void loadRecvSync() {
@@ -567,6 +569,7 @@ private:
   __device__ __forceinline__ void loadSendConn(struct ncclConnInfo* conn, int i) {
     sendBuff[i] = (union ncclLLFifoLine*)conn->buffs[NCCL_PROTO_LL];
     sendStep[i] = conn->step;
+    sendStep[i] = roundUp(sendStep[i], stepsPerChunk);
     if (wid == i) sendConn = conn;
   }
   __device__ __forceinline__ void loadSendSync() {
@@ -581,11 +584,13 @@ private:
  public:
   __device__  Primitives(
       const int tid, const int nthreads, int const *recvPeers, int const *sendPeers,
-      void const *inputBuf, void *outputBuf, uint64_t redOpArg, uint8_t group=0,
+      void const *inputBuf, void *outputBuf, uint64_t redOpArg, int stepsPerChunk,
+      int ignored, uint8_t group=0,
       uint8_t connIndexRecv=0, uint8_t connIndexSend=0
     ):
     redOp(redOpArg),
     tid(tid), nthreads(nthreads), wid(tid%WARP_SIZE), group(group),
+    stepsPerChunk(stepsPerChunk),
     stepLines(ncclShmem.comm.buffSizes[NCCL_PROTO_LL]/NCCL_STEPS/sizeof(ncclLLFifoLine)) {
     auto *channel = &ncclShmem.channel;
     barriers = &ncclShmem.groups[group].barrier;

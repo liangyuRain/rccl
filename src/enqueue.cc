@@ -297,6 +297,7 @@ static ncclResult_t addCollToPlan(
 }
 
 NCCL_PARAM(P2pLLThreshold, "P2P_LL_THRESHOLD", 16384);
+NCCL_PARAM(P2pChunkSteps, "P2P_CHUNKSTEPS", (NCCL_STEPS/8));
 
 // Put p2p op in plan assuming there is space in nWorkBudget, so you must
 // ensure *nWorkBudget >= 1 upon entry.
@@ -308,8 +309,10 @@ static ncclResult_t addP2pToPlan(
     isSendNotRecv ? ncclFuncSend : ncclFuncRecv,
     isSendNotRecv ? "Send" : "Recv",
     nullptr, addr, bytes, ncclInt8, ncclSum, peer, comm, (cudaStream_t)0,
-    /*Args*/1, 1
+    (int)ncclParamP2pChunkSteps(), (int)ncclParamP2pChunkSteps()
   };
+  // Shared buffers do not support *steps>1.
+  if (comm->nNodes > 1) info.sliceSteps = info.chunkSteps = 1;
 
   int channelId;
   NCCLCHECK(ncclChannelCompute(comm, peer, chunk%comm->p2pnChannelsPerPeer, info.coll, &channelId));
@@ -329,6 +332,7 @@ static ncclResult_t addP2pToPlan(
   elem.peer = addr == nullptr ? -1 : peer;
   elem.nWarps = NCCL_MAX_NTHREADS/comm->WarpSize;
   elem.p2pType = isSendNotRecv ? ncclWorkP2pTypeSend : ncclWorkP2pTypeRecv;
+  elem.stepsPerChunkPow2 = log2i(info.chunkSteps);
   elem.buffLo32 = uint32_t(reinterpret_cast<uintptr_t>(addr));
   elem.buffHi32 = reinterpret_cast<uintptr_t>(addr)>>32;
   elem.countLo32 = uint32_t(bytes);
@@ -581,7 +585,7 @@ static ncclResult_t scheduleP2pTasksToPlan(
 
   // Compute how much to split operations
   // Natural step size matching buffer steps.
-  ssize_t stepSize = comm->p2pChunkSize;
+  ssize_t chunkSize = comm->p2pChunkSize;
   // Try to use all channels
   int nChannelsMax = comm->p2pnChannelsPerPeer;
   int nChannelsMin = nChannelsMax;
@@ -620,8 +624,8 @@ static ncclResult_t scheduleP2pTasksToPlan(
         char* sendPtr = send ? (char*)send->buff : nullptr;
         ssize_t recvBytes = recv ? recv->bytes : 0;
         ssize_t sendBytes = send ? send->bytes : 0;
-        ssize_t minSize = stepSize/8;
-        ssize_t maxSize = comm->nNodes > 1 ? stepSize : stepSize*32;
+        ssize_t minSize = chunkSize/8;
+        ssize_t maxSize = comm->nNodes > 1 ? chunkSize : chunkSize*32;
         ssize_t recvChunkBytesMax = calcP2pChunkSize(recvBytes, nChannelsMin, nChannelsMax, minSize, maxSize);
         ssize_t sendChunkBytesMax = calcP2pChunkSize(sendBytes, nChannelsMin, nChannelsMax, minSize, maxSize);
         // Zero size send/recv are syncs, encode here with -1.
@@ -1284,6 +1288,39 @@ static ncclResult_t getLoopInfo(struct ncclInfo* info) {
 }
 
 RCCL_PARAM(IntraNetThreshold, "INTRANET_THRESHOLD", 8388608);
+RCCL_PARAM(LLChunkSteps, "LL_CHUNKSTEPS", (NCCL_STEPS/8));
+RCCL_PARAM(LL128ChunkSteps, "LL128_CHUNKSTEPS", (NCCL_STEPS/8));
+RCCL_PARAM(PipelineChunkSteps, "PIPELINE_CHUNKSTEPS", (NCCL_STEPS/8));
+RCCL_PARAM(RingChunkSteps, "RING_CHUNKSTEPS", (NCCL_STEPS/2));
+RCCL_PARAM(RingSliceSteps, "RING_SLICESTEPS", (NCCL_STEPS/4));
+
+static ncclResult_t getStepInfo(struct ncclInfo* info) {
+  if (info->protocol == NCCL_PROTO_LL) {
+     info->chunkSteps = info->sliceSteps = ncclParamLLChunkSteps();
+  } else if (info->protocol == NCCL_PROTO_LL128) {
+     info->chunkSteps = info->sliceSteps = ncclParamLL128ChunkSteps();
+  } else { /* SIMPLE */
+    if (info->algorithm == NCCL_ALGO_TREE || info->coll == ncclFuncBroadcast || info->coll == ncclFuncReduce) {
+      info->chunkSteps = info->sliceSteps = ncclParamPipelineChunkSteps();
+    } else {
+      info->chunkSteps = ncclParamRingChunkSteps();
+      info->sliceSteps = ncclParamRingSliceSteps();
+    }
+  }
+  if (info->chunkSteps > NCCL_STEPS/2 || info->sliceSteps > NCCL_STEPS/2) {
+    WARN("Invalid chunkSteps=%d/sliceSteps=%d, must be at most NCCL_STEPS/2=%d\n", info->chunkSteps, info->sliceSteps, NCCL_STEPS/2);
+    return ncclInvalidUsage;
+  }
+  if (info->chunkSteps % info->sliceSteps) {
+    WARN("Invalid chunkSteps=%d, must be a multiple of sliceSteps=%d\n", info->chunkSteps, info->sliceSteps);
+    return ncclInvalidUsage;
+  }
+  if (info->chunkSteps / info->sliceSteps > NCCL_MAX_SLICE_PER_CHUNK) {
+    WARN("Invalid chunkSteps=%d, must be at most sliceSteps*%d=%d\n", info->chunkSteps, NCCL_MAX_SLICE_PER_CHUNK, info->sliceSteps*NCCL_MAX_SLICE_PER_CHUNK);
+    return ncclInvalidUsage;
+  }
+  return ncclSuccess;
+}
 
 static ncclResult_t computeColl(struct ncclInfo* info /* input */, int* workFuncIndex, struct ncclWorkElem* work, struct ncclProxyOp* proxyOp /* output */) {
   int collNetTypeSupport = 0;
@@ -1297,6 +1334,8 @@ comp_next:
   // Set nstepsPerLoop and nchunksPerLoop
   NCCLCHECK(getPatternInfo(info));
   NCCLCHECK(getLoopInfo(info));
+  NCCLCHECK(getStepInfo(info));
+
   work->sendbuff = info->sendbuff;
   work->recvbuff = info->recvbuff;
   work->root = info->root;
@@ -1306,6 +1345,8 @@ comp_next:
   work->redOpArg = info->opFull.scalarArg;
   work->redOpArgIsPtr = info->opFull.scalarArgIsPtr;
   work->opCount = info->comm->opCount;
+  work->stepsPerSlice = info->sliceSteps;
+  work->slicesPerChunk = info->chunkSteps/info->sliceSteps;
 
   if (info->comm->nRanks == 1) {
     // one-rank reduce index
@@ -1327,8 +1368,8 @@ comp_next:
   }
 
   int stepSize   = info->comm->buffSizes[info->protocol]/NCCL_STEPS;
-  int chunkSteps = (info->protocol == NCCL_PROTO_SIMPLE && info->algorithm == NCCL_ALGO_RING) ? info->chunkSteps : 1;
-  int sliceSteps = (info->protocol == NCCL_PROTO_SIMPLE && info->algorithm == NCCL_ALGO_RING) ? info->sliceSteps : 1;
+  int chunkSteps = info->chunkSteps;
+  int sliceSteps = info->sliceSteps;
   int chunkSize  = stepSize*chunkSteps;
 
   // Compute lastChunkSize
@@ -1375,7 +1416,7 @@ comp_next:
     if ((info->nBytes < (1 * (concurrentOps*chunkSize))) && (chunkSize > 32768)) chunkSize = 32768;
     work->lastChunkSize = chunkSize / ncclTypeSize(info->datatype);
   } else if (info->protocol == NCCL_PROTO_LL) {
-    const ssize_t sliceSize = stepSize*sizeof(uint64_t)/sizeof(union ncclLLFifoLine);
+    const ssize_t sliceSize = chunkSize*sizeof(uint64_t)/sizeof(union ncclLLFifoLine);
     const ssize_t loopSize = info->nChannels*info->nchunksPerLoop*(ssize_t)sliceSize;
     work->lastChunkSize = DIVUP((info->nBytes-(info->nBytes/loopSize)*loopSize), info->nChannels*info->nchunksPerLoop);
     ALIGN_SIZE(work->lastChunkSize, info->nThreads*sizeof(uint64_t));

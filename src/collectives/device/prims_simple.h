@@ -13,9 +13,9 @@
 #include "msccl/msccl_struct.h"
 
 template<typename T, typename RedOp, typename Fan, int Direct,
-         int SlicePerChunk, int StepPerSlice, int Unroll, int P2p, int MultimemSrcs, int MultimemDsts>
+         int Unroll, int P2p, int MultimemSrcs, int MultimemDsts>
 class Primitives<
-    T, RedOp, Fan, Direct, ProtoSimple<SlicePerChunk, StepPerSlice, Unroll, MultimemSrcs, MultimemDsts>, P2p
+    T, RedOp, Fan, Direct, ProtoSimple<Unroll, MultimemSrcs, MultimemDsts>, P2p
   > {
   static constexpr int MaxRecv = Fan::MaxRecv, MaxSend = Fan::MaxSend;
   static constexpr int Input=0, Output=1;
@@ -36,6 +36,8 @@ class Primitives<
   const int nthreads;
   int nworkers;
   const int stepSize;
+  const int stepsPerSlice;
+  const int slicesPerChunk;
   Fan fan;
   int index; // Peer index I'm responsible for
   int flags;
@@ -115,12 +117,12 @@ private:
     if (((flags & (Recv*RoleWaitRecv)) && !noRecvWait) ||
         ((flags & (Send*RoleWaitSend)) && !noSendWait)) {
       int spins = 0;
-      while (connStepCache + (isSendNotRecv ? NCCL_STEPS : 0) < step + StepPerSlice) {
+      while (connStepCache + (isSendNotRecv ? NCCL_STEPS : 0) < step + stepsPerSlice) {
         __builtin_amdgcn_s_sleep(1);
         connStepCache = loadStepValue(connStepPtr);
         if (checkAbort(spins)) break;
-        //if (spins == 0) printf("r=%d b=%d t=%d SPUN OUT got=%d want=%d\n", ncclShmem.comm.rank, blockIdx.x, threadIdx.x, int(connStepCache + (isSendNotRecv ? NCCL_STEPS : 0)), int(step+StepPerSlice));
-        if (spins == 0) traceData(__LINE__, threadIdx.x, int(connStepCache + (isSendNotRecv ? NCCL_STEPS : 0)), int(step+StepPerSlice));
+        //if (spins == 0) printf("r=%d b=%d t=%d SPUN OUT got=%d want=%d\n", ncclShmem.comm.rank, blockIdx.x, threadIdx.x, int(connStepCache + (isSendNotRecv ? NCCL_STEPS : 0)), int(step+stepsPerSlice));
+        if (spins == 0) traceData(__LINE__, threadIdx.x, int(connStepCache + (isSendNotRecv ? NCCL_STEPS : 0)), int(step+stepsPerSlice));
       }
       __asm__ __volatile__("s_wakeup");
     }
@@ -153,7 +155,7 @@ private:
       else {
         ptrs[index] = connEltsFifo + (step%NCCL_STEPS)*stepSize;
       }
-      step += StepPerSlice;
+      step += stepsPerSlice;
     }
   }
 
@@ -163,7 +165,7 @@ private:
       STORE((unsigned int *)next_hdp_reg, 0x1);
 
     if (flags & (Recv*RolePostRecv | Send*RolePostSend)) {
-      step += StepPerSlice;
+      step += stepsPerSlice;
       if (Send && (flags & RolePostSend) && dataStored)
 #ifdef __GFX9__
         __asm__ __volatile__("buffer_wbinvl1_vol");
@@ -184,8 +186,8 @@ private:
     constexpr int Dst = DstBuf != -1;
 
     nelem = nelem < 0 ? 0 : nelem;
-    int sliceSize = stepSize*StepPerSlice;
-    sliceSize = max(divUp(nelem, 16*SlicePerChunk)*16, sliceSize/32);
+    int sliceSize = stepSize*stepsPerSlice;
+    sliceSize = max(divUp(nelem, 16*slicesPerChunk)*16, sliceSize/32);
     int slice = 0;
     int offset = 0;
 
@@ -341,7 +343,7 @@ private:
         postPeer<Recv, Send>(0 < sliceSize);
         offset += sliceSize;
         slice += 1;
-      } while (slice < SlicePerChunk && offset < nelem);
+      } while (slice < slicesPerChunk && offset < nelem);
     }
 
     // Non-workers come straight here. Workers too but only once the remaining
@@ -349,7 +351,7 @@ private:
     // worker perf is the limiter, perf-wise this loop is effectively unentered,
     // hence just a single branch insn.
     #pragma unroll 1
-    while (slice < SlicePerChunk) {
+    while (slice < slicesPerChunk) {
       sliceSize = sliceSize < nelem-offset ? sliceSize : nelem-offset;
       { // Only workers could have Wait roles so we know the slice must be empty
         // since we've exited the loop above.
@@ -415,8 +417,8 @@ private:
     constexpr int DirectRecv = 1 && Direct && DirectRecv1;
     constexpr int DirectSend = 1 && Direct && DirectSend1;
     int offset = 0; // slice offset
-    int sliceSize = stepSize*StepPerSlice;
-    int dataSize = max(DIVUP(peerElem, 16*SlicePerChunk)*16, sliceSize/32);  // per-peer slice size
+    int sliceSize = stepSize*stepsPerSlice;
+    int dataSize = max(DIVUP(peerElem, 16*slicesPerChunk)*16, sliceSize/32);  // per-peer slice size
 
     #pragma unroll 1
     for (int slice=0; slice<SlicePerChunk; ++slice) {
@@ -474,7 +476,7 @@ private:
     if (flags & (RoleWaitRecv|RolePostRecv)) {
       auto *conn = &peer->recv[connIndex];
       step = conn->step;
-      step = roundUp(step, SlicePerChunk*StepPerSlice);
+      step = roundUp(step, slicesPerChunk*stepsPerSlice);
       if (flags & RolePostRecv) {
         connStepPtr = conn->head;
         STORE(connStepPtr, step); // Return credits in case we rounded up.
@@ -515,7 +517,7 @@ private:
     if (flags & (RoleWaitSend|RolePostSend)) {
       auto *conn = &peer->send[connIndex];
       step = conn->step;
-      step = roundUp(step, SlicePerChunk*StepPerSlice);
+      step = roundUp(step, slicesPerChunk*stepsPerSlice);
       if (flags & RolePostSend) {
         connStepPtr = conn->tail;
 	    next_hdp_reg = conn->next_hdp_reg;
@@ -559,10 +561,12 @@ private:
  public:
   __forceinline__ __device__ Primitives(
       int tid, int nthreads, int const *recvPeers, int const *sendPeers,
-      void const *inputBuf, void *outputBuf, uint64_t redOpArg, uint8_t group=0,
+      void const *inputBuf, void *outputBuf, uint64_t redOpArg,
+      int stepsPerSlice, int slicesPerChunk, uint8_t group=0,
       uint8_t connIndexRecv = 0, uint8_t connIndexSend = 0, struct ncclWorkElem* e = nullptr
     ):
-    tid(tid), nthreads(nthreads), tidInBlock(threadIdx.x), group(group),
+    tid(tid), nthreads(nthreads), tidInBlock(threadIdx.x)
+    stepsPerSlice(stepsPerSlice), slicesPerChunk(slicesPerChunk), group(group),
     stepSize(ncclShmem.comm.buffSizes[NCCL_PROTO_SIMPLE]/NCCL_STEPS/sizeof(T)) {
 
     // For send operations, we need an extra warp to overlap the threadfence and the copy

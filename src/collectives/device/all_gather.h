@@ -22,7 +22,7 @@ namespace {
     const int nChannels = args->nChannels;
     ncclRing *ring = &ncclShmem.channel.ring;
     const int *ringRanks = ring->userRanks;
-    const ssize_t chunkSize = int(Proto::calcBytePerStep()/sizeof(T) * (Proto::Id == NCCL_PROTO_SIMPLE ? ALLGATHER_CHUNKSTEPS : 1));
+    const ssize_t chunkSize = int(Proto::calcBytePerStep()/sizeof(T) * args->stepsPerSlice*args->slicesPerChunk);
     // We should not need the final /2 but it makes performance much, much smoother. Might be a bug somewhere.
     const ssize_t minChunkSizeLL128 = int(nthreads*(Proto::calcBytePerGrain()/sizeof(T))/2);
     const int nranks = ncclShmem.comm.nRanks;
@@ -58,7 +58,8 @@ namespace {
     T *inputBuf = (T*)args->sendbuff;
     T *outputBuf = (T*)args->recvbuff;
     Primitives<T, RedOp, FanSymmetric<1>, 0, Proto, 0> prims
-      (tid, nthreads, &ring->prev, &ring->next, inputBuf, outputBuf, args->redOpArg, 0, args->connIndex, args->connIndex);
+      (tid, nthreads, &ring->prev, &ring->next, inputBuf, outputBuf, args->redOpArg, 
+          args->stepsPerSlice, args->slicesPerChunk, 0, args->connIndex, args->connIndex);
 
 #if defined(ENABLE_NPKIT)
     if (tid == 0) {
@@ -169,7 +170,7 @@ namespace {
 template<typename T, typename RedOp>
 struct RunWorkElement<ncclFuncAllGather, T, RedOp, NCCL_ALGO_RING, NCCL_PROTO_SIMPLE> {
   __device__ __forceinline__ void run(ncclWorkElem *args) {
-    using Proto = ProtoSimple<ALLGATHER_CHUNKSTEPS/ALLGATHER_SLICESTEPS, ALLGATHER_SLICESTEPS>;
+    using Proto = ProtoSimple<>;
     runRing<T, RedOp, Proto>(args);
   }
 };
@@ -204,7 +205,7 @@ struct RunWorkElement<ncclFuncAllGather, T, RedOp, NCCL_ALGO_NVLS, NCCL_PROTO_SI
     const int tidEndGather = nThreadsGather;
     const int tidEndBcast = tidEndGather + nThreadsBcast;
 
-    using Proto = ProtoSimple<1, 1>;
+    using Proto = ProtoSimple<>;
 
     if (tid < tidEndGather) {
       // Gather
